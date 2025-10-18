@@ -551,14 +551,290 @@ puts response['messages']  # Hash access still works
 
 ## API Documentation
 
-This gem strictly aligns with the [Mobile Message API](https://api.mobilemessage.com.au/). All endpoints, request formats, and response structures match the official specification.
+This gem provides a Ruby interface for the [Mobile Message API](https://mobilemessage.com.au/api-documentation). All methods map directly to official API endpoints.
+
+**Official Documentation:** [https://mobilemessage.com.au/api-documentation](https://mobilemessage.com.au/api-documentation)
+
+### Complete API Method Mapping
+
+This table shows every public method in this gem and how it maps to the official Mobile Message API:
+
+| Gem Method | Mobile Message API Endpoint | Description | Official Docs |
+|------------|----------------------------|-------------|---------------|
+| **Client Initialization** |
+| `MobileMessage.enhanced_sms()` | - | Creates client with enhanced response objects (recommended) | [API Docs](https://mobilemessage.com.au/api-documentation) |
+| `MobileMessage.raw_sms()` | - | Creates client with raw API responses | [API Docs](https://mobilemessage.com.au/api-documentation) |
+| `MobileMessage.sms()` | - | Creates client (alias for enhanced_sms) | [API Docs](https://mobilemessage.com.au/api-documentation) |
+| **Sending Messages** |
+| `client.send_sms(to:, body:, from:, unicode:)` | `POST /v1/messages` | Send single SMS message | [Send SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.send_bulk(messages:)` | `POST /v1/messages` | Send multiple different SMS messages in one request | [Send SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.broadcast(to_numbers:, body:, from:, unicode:)` | `POST /v1/messages` | Send same message to multiple recipients | [Send SMS](https://mobilemessage.com.au/api-documentation) |
+| **Message Status & Tracking** |
+| `client.get_message_status(message_id:)` | `GET /v1/messages/:id` | Get delivery status for a specific message | [Message Status](https://mobilemessage.com.au/api-documentation) |
+| `client.track_delivery(message_id:, timeout:, check_interval:)` | `GET /v1/messages/:id` (polling) | Poll message status until delivered or failed | [Message Status](https://mobilemessage.com.au/api-documentation) |
+| **Account Management** |
+| `client.get_balance()` | `GET /v1/account/balance` | Get current account balance and details | [Account Balance](https://mobilemessage.com.au/api-documentation) |
+| `client.balance()` | `GET /v1/account/balance` | Alias for get_balance() | [Account Balance](https://mobilemessage.com.au/api-documentation) |
+| **Receiving Messages** |
+| `client.get_messages(page:, per_page:, unread_only:)` | `GET /v1/messages/received` | Retrieve received SMS messages (polling) | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.received_messages()` | `GET /v1/messages/received` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.inbound_messages()` | `GET /v1/messages/received` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| **Webhook Handling** |
+| `client.parse_webhook(payload)` | - | Parse inbound webhook payload from Mobile Message | [Webhooks](https://mobilemessage.com.au/api-documentation) |
+| `client.verify_webhook_signature(payload:, signature:, secret:)` | - | Verify webhook signature for security | [Webhooks](https://mobilemessage.com.au/api-documentation) |
+
+### Method Details
+
+#### Client Initialization
+
+```ruby
+# Enhanced responses (recommended) - provides convenience methods like .success?, .first_message_id
+client = MobileMessage.enhanced_sms(
+  username: 'your-api-username',
+  password: 'your-api-password',
+  default_from: 'YourBrand',
+  sandbox_mode: false
+)
+
+# Raw responses - returns plain hashes directly from API
+client = MobileMessage.raw_sms(
+  username: 'your-api-username',
+  password: 'your-api-password'
+)
+```
+
+**Maps to:** N/A (local initialization)  
+**Official API Authentication:** HTTP Basic Auth (handled automatically)
+
+---
+
+#### send_sms(to:, body:, from:, unicode:)
+
+Send a single SMS message.
+
+```ruby
+response = client.send_sms(
+  to: '+61400000000',      # Required: recipient phone number
+  body: 'Your message',     # Required: message text
+  from: 'YourBrand',       # Optional: sender ID (uses default_from if not provided)
+  unicode: false           # Optional: enable for emojis/special characters
+)
+```
+
+**Maps to:** `POST /v1/messages` with single message in array  
+**API Request Format:**
+```json
+{
+  "messages": [
+    {
+      "to": "+61400000000",
+      "from": "YourBrand",
+      "body": "Your message",
+      "unicode": false
+    }
+  ]
+}
+```
+
+**Enhanced Response Methods:** `.success?`, `.first_message_id`, `.sent_count`, `.messages`
+
+---
+
+#### send_bulk(messages:)
+
+Send multiple different messages in one API call (up to 100 messages).
+
+```ruby
+response = client.send_bulk(
+  messages: [
+    { to: '+61400000001', body: 'Message 1', from: 'Brand' },
+    { to: '+61400000002', body: 'Message 2', from: 'Brand', unicode: true }
+  ]
+)
+```
+
+**Maps to:** `POST /v1/messages` with multiple messages  
+**API Request Format:**
+```json
+{
+  "messages": [
+    { "to": "+61400000001", "from": "Brand", "body": "Message 1", "unicode": false },
+    { "to": "+61400000002", "from": "Brand", "body": "Message 2", "unicode": true }
+  ]
+}
+```
+
+**Enhanced Response Methods:** `.success?`, `.sent_count`, `.failed_count`, `.all_successful?`, `.each_message`
+
+---
+
+#### broadcast(to_numbers:, body:, from:, unicode:)
+
+Convenience method to send the same message to multiple recipients.
+
+```ruby
+response = client.broadcast(
+  to_numbers: ['+61400000001', '+61400000002', '+61400000003'],
+  body: 'Same message for all',
+  from: 'YourBrand'
+)
+```
+
+**Maps to:** `POST /v1/messages` (internally converts to send_bulk format)  
+**Enhanced Response Methods:** `.success?`, `.sent_count`, `.messages`
+
+---
+
+#### get_message_status(message_id:)
+
+Get delivery status and details for a specific message.
+
+```ruby
+response = client.get_message_status(message_id: 'msg_12345')
+```
+
+**Maps to:** `GET /v1/messages/{message_id}`  
+**API Response Example:**
+```json
+{
+  "success": true,
+  "message": {
+    "message_id": "msg_12345",
+    "to": "+61400000000",
+    "from": "YourBrand",
+    "body": "Message text",
+    "status": "delivered",
+    "delivered_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+**Enhanced Response Methods:** `.delivered?`, `.pending?`, `.failed?`, `.status`, `.delivery_timestamp`
+
+---
+
+#### track_delivery(message_id:, timeout:, check_interval:)
+
+Poll message status until it reaches a final state (delivered/failed). **Note:** This blocks the thread. For production, use webhooks instead.
+
+```ruby
+response = client.track_delivery(
+  message_id: 'msg_12345',
+  timeout: 300,           # Maximum wait time (seconds)
+  check_interval: 30      # Seconds between status checks
+)
+```
+
+**Maps to:** Repeated `GET /v1/messages/{message_id}` calls  
+**Best Practice:** Use webhooks for production - this method is only suitable for single message tracking
+
+---
+
+#### get_balance()
+
+Get current account balance and credit information.
+
+```ruby
+response = client.get_balance
+# Or use alias: client.balance
+```
+
+**Maps to:** `GET /v1/account/balance`  
+**API Response Example:**
+```json
+{
+  "success": true,
+  "balance": 100.50,
+  "currency": "AUD",
+  "account_name": "Your Account"
+}
+```
+
+**Enhanced Response Methods:** `.balance`, `.currency`, `.formatted_balance`, `.low_balance?(threshold)`
+
+---
+
+#### get_messages(page:, per_page:, unread_only:)
+
+Retrieve received SMS messages via polling.
+
+```ruby
+response = client.get_messages(
+  page: 1,              # Optional: page number (default: 1)
+  per_page: 100,        # Optional: messages per page (default: 100)
+  unread_only: false    # Optional: only unread messages (default: false)
+)
+# Aliases: client.received_messages, client.inbound_messages
+```
+
+**Maps to:** `GET /v1/messages/received?page=1&per_page=100`  
+**API Response Example:**
+```json
+{
+  "success": true,
+  "messages": [
+    {
+      "message_id": "msg_67890",
+      "from": "+61400000001",
+      "to": "+61400000000",
+      "body": "Reply message",
+      "received_at": "2024-01-15T10:30:00Z",
+      "unicode": false
+    }
+  ],
+  "total_count": 42,
+  "page": 1,
+  "per_page": 100
+}
+```
+
+**Enhanced Response Methods:** `.messages`, `.total_count`, `.page`, `.total_pages`, `.has_more?`, `.each_message`
+
+---
+
+#### parse_webhook(payload)
+
+Parse webhook payload received from Mobile Message for real-time message notifications.
+
+```ruby
+# In your webhook endpoint (Rails, Sinatra, etc.)
+message = client.parse_webhook(request.body.read)
+puts message.from
+puts message.body
+puts message.received_at
+```
+
+**Maps to:** N/A (parses webhook POST data)  
+**Webhook Payload Format:** Same as messages in get_messages response  
+**Returns:** `InboundMessage` object with methods: `.message_id`, `.from`, `.to`, `.body`, `.received_at`, `.unicode?`
+
+---
+
+#### verify_webhook_signature(payload:, signature:, secret:)
+
+Verify webhook signature to ensure request is from Mobile Message (if signatures are enabled).
+
+```ruby
+is_valid = client.verify_webhook_signature(
+  payload: request.body.read,
+  signature: request.headers['X-Signature'],
+  secret: ENV['WEBHOOK_SECRET']
+)
+```
+
+**Maps to:** N/A (local HMAC-SHA256 verification)  
+**Security:** Uses constant-time comparison to prevent timing attacks
+
+---
 
 ### Supported Endpoints
 
-- `POST /v1/messages` - Send SMS messages (single or bulk)
-- `GET /v1/messages/:id` - Get message status
+The gem supports all core Mobile Message API endpoints:
+
+- `POST /v1/messages` - Send SMS messages (single or bulk up to 100)
+- `GET /v1/messages/:id` - Get message delivery status
 - `GET /v1/messages/received` - Get received messages (polling)
-- `GET /v1/account/balance` - Get account balance
+- `GET /v1/account/balance` - Get account balance and credits
 
 ### Authentication
 
@@ -567,10 +843,16 @@ The Mobile Message API uses HTTP Basic Authentication. Your username and passwor
 ```ruby
 # Authentication is handled automatically by the client
 client = MobileMessage.enhanced_sms(
-  username: 'your-api-username',
-  password: 'your-api-password'
+  username: 'your-api-username',  # Your Mobile Message API username
+  password: 'your-api-password'   # Your Mobile Message API password
 )
 ```
+
+All requests include:
+- `Authorization: Basic <base64_encoded_credentials>` header
+- `Content-Type: application/json` header (for POST/PUT)
+- `Accept: application/json` header
+- `User-Agent: mobilemessage-sms-ruby/{version}` header
 
 ## Performance Considerations
 
