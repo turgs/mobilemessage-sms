@@ -4,6 +4,14 @@ module MobileMessage
   module SMS
     # Configuration for MobileMessage SMS client
     class Configuration
+      # Default configuration values
+      DEFAULT_OPEN_TIMEOUT = 30
+      DEFAULT_READ_TIMEOUT = 60
+      DEFAULT_MAX_RETRIES = 3
+      DEFAULT_RETRY_DELAY = 2
+      MAX_RETRY_DELAY = 60
+      RETRY_JITTER_FACTOR = 0.3
+
       attr_accessor :username, :password, :default_from, :response_format,
                     :open_timeout, :read_timeout, :auto_retry, :max_retries,
                     :retry_delay, :sandbox_mode
@@ -13,11 +21,11 @@ module MobileMessage
         @password = nil
         @default_from = nil
         @response_format = :enhanced # :enhanced, :raw, or :both
-        @open_timeout = 30
-        @read_timeout = 60
+        @open_timeout = DEFAULT_OPEN_TIMEOUT
+        @read_timeout = DEFAULT_READ_TIMEOUT
         @auto_retry = true
-        @max_retries = 3
-        @retry_delay = 2 # Base delay for exponential backoff
+        @max_retries = DEFAULT_MAX_RETRIES
+        @retry_delay = DEFAULT_RETRY_DELAY # Base delay for exponential backoff
         @sandbox_mode = false
       end
 

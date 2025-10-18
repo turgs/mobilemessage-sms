@@ -165,7 +165,11 @@ module MobileMessage
       def verify_webhook_signature(payload:, signature:, secret:)
         require "openssl"
         computed_signature = OpenSSL::HMAC.hexdigest("SHA256", secret, payload)
-        computed_signature == signature
+        # Use constant-time comparison to prevent timing attacks
+        OpenSSL.fixed_length_secure_compare(computed_signature, signature)
+      rescue ArgumentError
+        # Signatures have different lengths
+        false
       end
 
       private
@@ -192,8 +196,8 @@ module MobileMessage
         # Exponential backoff with jitter
         base_delay = @config.retry_delay
         max_delay = base_delay * (2**(attempt - 1))
-        jitter = rand * 0.3 * max_delay # Add up to 30% jitter
-        [max_delay + jitter, 60].min # Cap at 60 seconds
+        jitter = rand * Configuration::RETRY_JITTER_FACTOR * max_delay
+        [max_delay + jitter, Configuration::MAX_RETRY_DELAY].min
       end
 
       def wrap_response(response_class, raw_response)

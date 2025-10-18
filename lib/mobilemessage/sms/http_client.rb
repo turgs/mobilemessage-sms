@@ -12,13 +12,18 @@ module MobileMessage
       API_BASE_URL = "https://api.mobilemessage.com.au"
       API_VERSION = "v1"
 
-      attr_reader :username, :password, :open_timeout, :read_timeout
+      attr_reader :open_timeout, :read_timeout
 
       def initialize(username:, password:, open_timeout: 30, read_timeout: 60)
         @username = username
         @password = password
         @open_timeout = open_timeout
         @read_timeout = read_timeout
+      end
+
+      # Masked inspect to prevent credential exposure in logs
+      def inspect
+        "#<#{self.class.name} @username=***REDACTED*** @open_timeout=#{@open_timeout} @read_timeout=#{@read_timeout}>"
       end
 
       # Make a GET request
@@ -75,6 +80,7 @@ module MobileMessage
             uri.hostname,
             uri.port,
             use_ssl: uri.scheme == "https",
+            verify_mode: OpenSSL::SSL::VERIFY_PEER,
             open_timeout: @open_timeout,
             read_timeout: @read_timeout
           ) do |http|

@@ -206,4 +206,35 @@ class TestClient < Minitest::Test
     end
     assert_equal 60, error.retry_after
   end
+
+  def test_webhook_signature_verification
+    client = MobileMessage::SMS::Client.new(**sample_credentials)
+    payload = '{"test":"data"}'
+    secret = "webhook_secret"
+    
+    # Generate valid signature
+    require "openssl"
+    valid_signature = OpenSSL::HMAC.hexdigest("SHA256", secret, payload)
+    
+    # Test valid signature
+    assert client.verify_webhook_signature(
+      payload: payload,
+      signature: valid_signature,
+      secret: secret
+    )
+    
+    # Test invalid signature
+    refute client.verify_webhook_signature(
+      payload: payload,
+      signature: "invalid_signature",
+      secret: secret
+    )
+    
+    # Test signature with different length (should not raise)
+    refute client.verify_webhook_signature(
+      payload: payload,
+      signature: "short",
+      secret: secret
+    )
+  end
 end

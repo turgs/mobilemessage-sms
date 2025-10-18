@@ -135,7 +135,9 @@ module MobileMessage
       def delivery_timestamp
         return nil unless message["delivered_at"]
 
-        Time.parse(message["delivered_at"]) rescue nil
+        Time.parse(message["delivered_at"])
+      rescue ArgumentError, TypeError
+        nil
       end
     end
 
@@ -189,7 +191,9 @@ module MobileMessage
       def received_at
         return nil unless @raw_data["received_at"]
 
-        Time.parse(@raw_data["received_at"]) rescue nil
+        Time.parse(@raw_data["received_at"])
+      rescue ArgumentError, TypeError
+        nil
       end
 
       def unicode?
@@ -204,7 +208,7 @@ module MobileMessage
     # Response for listing messages
     class MessagesListResponse < BaseResponse
       def messages
-        (@raw_response["messages"] || []).map { |m| InboundMessage.new(m) }
+        @messages ||= (@raw_response["messages"] || []).map { |m| InboundMessage.new(m) }
       end
 
       def total_count

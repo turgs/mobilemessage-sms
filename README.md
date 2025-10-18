@@ -195,6 +195,9 @@ elsif response.failed?
 end
 
 # Track message until delivered or failed
+# Note: This method blocks the thread and polls the API.
+# For production, use webhooks for real-time delivery notifications.
+# Only suitable for tracking a single message at a time.
 response = client.track_delivery(
   message_id: 'msg_12345',
   timeout: 300,       # 5 minutes
@@ -568,6 +571,28 @@ client = MobileMessage.enhanced_sms(
   password: 'your-api-password'
 )
 ```
+
+## Performance Considerations
+
+### Connection Management
+
+The gem creates a new HTTP connection for each API request. For high-throughput applications (hundreds of requests per second), consider:
+
+1. **Connection Pooling**: Use a connection pool library like `connection_pool` gem
+2. **Caching**: Cache message status responses when appropriate
+3. **Batch Operations**: Use `broadcast` or `send_bulk` instead of individual `send_sms` calls
+
+### Message Tracking
+
+The `track_delivery` method blocks the thread while polling. For production systems:
+
+- **Use Webhooks**: Configure webhooks for real-time delivery notifications instead of polling
+- **Background Jobs**: If polling is necessary, use a background job processor
+- **Don't Track Multiple Messages**: This method is only suitable for single message tracking
+
+### Response Caching
+
+Response wrappers automatically memoize expensive operations like message list parsing. Reusing response objects is more efficient than making repeated API calls.
 
 ## Requirements
 
