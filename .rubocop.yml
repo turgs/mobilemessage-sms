@@ -1,0 +1,48 @@
+AllCops:
+  TargetRubyVersion: 3.0
+  NewCops: enable
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'pkg/**/*'
+    - 'examples/**/*'
+
+Layout/LineLength:
+  Max: 120
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/ClassLength:
+  Max: 250
+
+Metrics/ModuleLength:
+  Max: 250
+
+Metrics/BlockLength:
+  Exclude:
+    - 'test/**/*'
+    - 'spec/**/*'
+    - '*.gemspec'
+
+Style/Documentation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/HashSyntax:
+  EnforcedStyle: ruby19
+
+Naming/MethodParameterName:
+  AllowedNames:
+    - to
+    - id
+    - e
+
+Lint/SuppressedException:
+  Exclude:
+    - 'test/**/*'
