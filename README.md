@@ -7,6 +7,27 @@ A Ruby gem for the Mobile Message API focused on SMS sending, receiving, and acc
 [![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.0.0-ruby.svg)](https://www.ruby-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Complete API Reference](#complete-api-reference)
+- [API Documentation](#api-documentation)
+  - [Complete API Method Mapping](#complete-api-method-mapping)
+  - [Method Details](#method-details)
+  - [Supported Endpoints](#supported-endpoints)
+  - [Authentication](#authentication)
+- [Response Objects](#response-objects)
+- [Error Handling](#error-handling)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Migration Guide](#migration-guide)
+- [Performance Considerations](#performance-considerations)
+- [Requirements](#requirements)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 
 ### Core SMS Operations
