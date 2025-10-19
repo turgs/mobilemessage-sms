@@ -87,20 +87,21 @@ client = MobileMessage.enhanced_sms(
 
 # Send a message with smart response handling
 response = client.send_sms(
-  to: '+61400000000',
-  body: 'Hello from Mobile Message!'
+  to: '0412345678',
+  message: 'Hello from Mobile Message!'
 )
 
 # Clean, readable response handling
 if response.success?
   puts "Message sent! ID: #{response.first_message_id}"
   puts "Status: #{response.messages.first['status']}"
+  puts "Cost: #{response.total_cost} credits"
 else
   puts "Failed: #{response.error_message}"
 end
 
 # Chainable operations for elegant error handling
-client.send_sms(to: '+61400000000', body: 'Hello!')
+client.send_sms(to: '0412345678', message: 'Hello!')
   .on_success { |r| puts "Sent! ID: #{r.first_message_id}" }
   .on_error { |r| puts "Failed: #{r.error_message}" }
 ```
@@ -146,22 +147,30 @@ client = MobileMessage::SMS::Client.new(
 ```ruby
 # Basic send
 response = client.send_sms(
-  to: '+61400000000',
-  body: 'Your message text',
-  from: 'YourBrand'  # Optional if default_from is set
+  to: '0412345678',
+  message: 'Your message text',
+  sender: 'YourBrand'  # Optional if default_from is set
 )
 
 # With Unicode support (for emojis and special characters)
 response = client.send_sms(
-  to: '+61400000000',
-  body: 'Hello! 👋 😊',
+  to: '0412345678',
+  message: 'Hello! 👋 😊',
   unicode: true
+)
+
+# With custom reference for tracking
+response = client.send_sms(
+  to: '0412345678',
+  message: 'Order #12345 shipped',
+  custom_ref: 'order_12345'
 )
 
 # Check response
 if response.success?
   puts "Message ID: #{response.first_message_id}"
   puts "Sent count: #{response.sent_count}"
+  puts "Total cost: #{response.total_cost} credits"
   puts "All successful: #{response.all_successful?}"
 end
 ```
@@ -169,22 +178,23 @@ end
 #### Bulk Messages
 
 ```ruby
-# Send different messages to different recipients
+# Send different messages to different recipients (up to 100 per request)
 messages = [
-  { to: '+61400000001', body: 'Hello Alice!', from: 'MyApp' },
-  { to: '+61400000002', body: 'Hello Bob!', from: 'MyApp' },
-  { to: '+61400000003', body: 'Hello Charlie!', from: 'MyApp', unicode: true }
+  { to: '0412345678', message: 'Hello Alice!', sender: 'MyApp', custom_ref: 'alice_001' },
+  { to: '0412345679', message: 'Hello Bob!', sender: 'MyApp', custom_ref: 'bob_001' },
+  { to: '0412345680', message: 'Hello Charlie! 🎉', sender: 'MyApp', unicode: true }
 ]
 
-response = client.send_bulk(messages: messages)
+response = client.send_bulk(messages: messages, enable_unicode: true)
 
 puts "Sent: #{response.sent_count}"
 puts "Failed: #{response.failed_count}"
+puts "Total cost: #{response.total_cost} credits"
 puts "All successful: #{response.all_successful?}"
 
 # Iterate through individual message results
-response.each_message do |message|
-  puts "#{message['to']}: #{message['status']}"
+response.each_message do |msg|
+  puts "#{msg['to']}: #{msg['status']} (ID: #{msg['message_id']})"
 end
 ```
 
@@ -193,27 +203,36 @@ end
 ```ruby
 # Send same message to multiple numbers
 response = client.broadcast(
-  to_numbers: ['+61400000001', '+61400000002', '+61400000003'],
-  body: 'Important announcement!',
-  from: 'YourBrand'
+  to_numbers: ['0412345678', '0412345679', '0412345680'],
+  message: 'Important announcement!',
+  sender: 'YourBrand',
+  custom_ref: 'announcement_001'
 )
 
 puts "Broadcast sent to #{response.messages.count} recipients"
+puts "Total cost: #{response.total_cost} credits"
 ```
 
 ### Message Status and Tracking
 
 ```ruby
-# Get message status
-response = client.get_message_status(message_id: 'msg_12345')
+# Get message status by message_id
+response = client.get_message_status(message_id: 'abcd1234-efgh-5678-ijkl-9876543210mn')
 
 if response.delivered?
-  puts "Message delivered at: #{response.delivery_timestamp}"
+  puts "Message delivered!"
+  puts "Requested at: #{response.requested_at}"
 elsif response.pending?
   puts "Message is pending"
 elsif response.failed?
   puts "Message failed"
 end
+
+# Get message status by custom_ref
+response = client.get_message_status(custom_ref: 'tracking001')
+
+# Use wildcard search with custom_ref
+response = client.get_message_status(custom_ref: 'tracking%')
 
 # Track message until delivered or failed
 # Note: This method blocks the thread and polls the API.
@@ -234,7 +253,6 @@ puts "Final status: #{response.status}"
 response = client.get_balance
 
 puts "Balance: #{response.formatted_balance}"
-puts "Account: #{response.account_name}"
 
 if response.low_balance?(threshold: 20)
   puts "⚠️  Your balance is low!"
@@ -242,31 +260,65 @@ end
 
 # Also available as alias
 balance = client.balance
+puts "Credits remaining: #{balance.balance}"
 ```
 
-### Receiving Messages (Polling)
+### Receiving Messages (Webhooks)
+
+**Important:** The Mobile Message API does not provide a polling endpoint for received messages. Instead, you must configure webhooks in your account settings to receive real-time notifications.
+
+Configure your webhook URLs at https://mobilemessage.com.au in your account settings:
+- **Inbound URL**: For receiving SMS replies
+- **Status URL**: For delivery receipt notifications
 
 ```ruby
-# Get received messages
-response = client.get_messages(page: 1, per_page: 100)
-
-puts "Page: #{response.page}/#{response.total_pages}"
-puts "Total messages: #{response.total_count}"
-
-# Iterate through messages
-response.each_message do |message|
-  puts "From: #{message.from}"
-  puts "Body: #{message.body}"
-  puts "Received: #{message.received_at}"
-  puts "Unicode: #{message.unicode?}"
+# In your webhook endpoint (e.g., Rails controller or Sinatra app)
+def webhook_inbound
+  payload = request.body.read
+  
+  # Parse inbound message webhook
+  message = client.parse_webhook(payload)
+  
+  if message.is_a?(MobileMessage::SMS::InboundMessage)
+    puts "Inbound message received"
+    puts "From: #{message.from}"
+    puts "To: #{message.to}"
+    puts "Message: #{message.body}"
+    puts "Type: #{message.type}" # "inbound" or "unsubscribe"
+    puts "Received at: #{message.received_at}"
+    
+    if message.original_message_id
+      puts "Reply to message: #{message.original_message_id}"
+      puts "Original ref: #{message.original_custom_ref}"
+    end
+  end
+  
+  # Respond with 200 OK
+  render plain: "OK", status: 200
 end
 
-# Get only unread messages
-response = client.get_messages(unread_only: true)
-
-# Alternative aliases
-response = client.received_messages
-response = client.inbound_messages
+def webhook_status
+  payload = request.body.read
+  
+  # Parse status update webhook
+  status = client.parse_webhook(payload)
+  
+  if status.is_a?(MobileMessage::SMS::StatusUpdate)
+    puts "Status update received"
+    puts "Message ID: #{status.message_id}"
+    puts "Custom Ref: #{status.custom_ref}"
+    puts "Status: #{status.status}" # "delivered" or "failed"
+    puts "To: #{status.to}"
+    
+    if status.delivered?
+      puts "Message was delivered!"
+    elsif status.failed?
+      puts "Message delivery failed"
+    end
+  end
+  
+  render plain: "OK", status: 200
+end
 ```
 
 ### Webhook Handling
@@ -276,14 +328,22 @@ response = client.inbound_messages
 def webhook
   payload = request.body.read
   
-  # Parse webhook payload
-  message = client.parse_webhook(payload)
+  # Parse webhook payload (automatically detects inbound vs status)
+  webhook_data = client.parse_webhook(payload)
   
-  puts "Received from: #{message.from}"
-  puts "Message: #{message.body}"
-  puts "Received at: #{message.received_at}"
+  case webhook_data
+  when MobileMessage::SMS::InboundMessage
+    # Handle inbound SMS
+    puts "Received from: #{webhook_data.from}"
+    puts "Message: #{webhook_data.body}"
+    puts "Type: #{webhook_data.type}" # "inbound" or "unsubscribe"
+  when MobileMessage::SMS::StatusUpdate
+    # Handle delivery status
+    puts "Message #{webhook_data.message_id}: #{webhook_data.status}"
+    puts "Custom Ref: #{webhook_data.custom_ref}"
+  end
   
-  # Verify webhook signature (if provided by Mobile Message)
+  # Verify webhook signature (if using HMAC verification)
   signature = request.headers['X-Signature']
   secret = ENV['WEBHOOK_SECRET']
   
@@ -292,10 +352,11 @@ def webhook
     signature: signature,
     secret: secret
   )
-    # Process the message
-    process_inbound_sms(message)
+    # Process the webhook
+    process_webhook(webhook_data)
+    render plain: "OK", status: 200
   else
-    render status: :unauthorized
+    render plain: "Unauthorized", status: 401
   end
 end
 ```
@@ -305,15 +366,16 @@ end
 ### SendSmsResponse
 
 ```ruby
-response.success?           # Boolean: API call successful
+response.success?           # Boolean: API call successful (status == "complete")
 response.error?             # Boolean: API call failed
-response.messages           # Array: All message details
+response.messages           # Array: All message details (from "results")
 response.message_ids        # Array: All message IDs
 response.first_message_id   # String: First message ID
 response.sent_count         # Integer: Successfully sent messages
 response.failed_count       # Integer: Failed messages
 response.all_successful?    # Boolean: All messages sent
 response.has_failures?      # Boolean: Any messages failed
+response.total_cost         # Integer: Total cost in credits
 response.each_message { |msg| ... }  # Iterator
 response.error_message      # String: Error message if failed
 response.error_code         # String: Error code if failed
@@ -325,45 +387,55 @@ response.error_code         # String: Error code if failed
 response.message_id         # String: Message ID
 response.status             # String: Current status
 response.to                 # String: Recipient number
-response.from               # String: Sender ID
+response.sender             # String: Sender ID
 response.body               # String: Message content
+response.custom_ref         # String: Your custom reference
+response.cost               # Integer: Message cost in credits
 response.delivered?         # Boolean: Message delivered
 response.pending?           # Boolean: Message pending
 response.failed?            # Boolean: Message failed
-response.delivery_timestamp # Time: When delivered
+response.requested_at       # Time: When message was requested
 ```
 
 ### BalanceResponse
 
 ```ruby
-response.balance            # Float: Account balance
-response.currency           # String: Currency code (e.g., "AUD")
-response.account_name       # String: Account name
+response.balance            # Integer: Account credit balance
+response.credit_balance     # Integer: Same as balance (alias)
+response.currency           # String: Currency code ("AUD")
 response.low_balance?(threshold)  # Boolean: Balance below threshold
-response.formatted_balance  # String: Formatted balance with currency
+response.formatted_balance  # String: Formatted balance ("1000 credits")
 ```
 
-### InboundMessage
+### InboundMessage (Webhook Data)
 
 ```ruby
-message.message_id          # String: Message ID
+message.to                  # String: Recipient number (your number)
 message.from                # String: Sender number
-message.to                  # String: Recipient number
+message.sender              # String: Same as from (alias)
 message.body                # String: Message content
+message.message             # String: Same as body (alias)
+message.type                # String: "inbound" or "unsubscribe"
+message.inbound?            # Boolean: Is inbound message
+message.unsubscribe?        # Boolean: Is unsubscribe request
 message.received_at         # Time: When received
-message.unicode?            # Boolean: Unicode message
+message.original_message_id # String: Original outbound message ID (if reply)
+message.original_custom_ref # String: Original custom ref (if reply)
 ```
 
-### MessagesListResponse
+### StatusUpdate (Webhook Data)
 
 ```ruby
-response.messages           # Array<InboundMessage>: Message objects
-response.total_count        # Integer: Total message count
-response.page               # Integer: Current page
-response.per_page           # Integer: Messages per page
-response.total_pages        # Integer: Total pages
-response.has_more?          # Boolean: More pages available
-response.each_message { |msg| ... }  # Iterator
+status.message_id           # String: Message ID
+status.custom_ref           # String: Your custom reference
+status.to                   # String: Recipient number
+status.sender               # String: Sender ID
+status.body                 # String: Message content
+status.message              # String: Same as body (alias)
+status.status               # String: "delivered" or "failed"
+status.delivered?           # Boolean: Message was delivered
+status.failed?              # Boolean: Message failed
+status.received_at          # Time: When status was received
 ```
 
 ### Chainable Operations
@@ -587,21 +659,17 @@ This table shows every public method in this gem and how it maps to the official
 | `MobileMessage.raw_sms()` | - | Creates client with raw API responses | [API Docs](https://mobilemessage.com.au/api-documentation) |
 | `MobileMessage.sms()` | - | Creates client (alias for enhanced_sms) | [API Docs](https://mobilemessage.com.au/api-documentation) |
 | **Sending Messages** |
-| `client.send_sms(to:, body:, from:, unicode:)` | `POST /v1/messages` | Send single SMS message | [Send SMS](https://mobilemessage.com.au/api-documentation) |
-| `client.send_bulk(messages:)` | `POST /v1/messages` | Send multiple different SMS messages in one request | [Send SMS](https://mobilemessage.com.au/api-documentation) |
-| `client.broadcast(to_numbers:, body:, from:, unicode:)` | `POST /v1/messages` | Send same message to multiple recipients | [Send SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.send_sms(to:, message:, sender:, unicode:, custom_ref:)` | `POST /v1/messages` | Send single SMS message | [Send SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.send_bulk(messages:, enable_unicode:)` | `POST /v1/messages` | Send up to 100 SMS messages in one request | [Send SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.broadcast(to_numbers:, message:, sender:, unicode:, custom_ref:)` | `POST /v1/messages` | Send same message to multiple recipients | [Send SMS](https://mobilemessage.com.au/api-documentation) |
 | **Message Status & Tracking** |
-| `client.get_message_status(message_id:)` | `GET /v1/messages/:id` | Get delivery status for a specific message | [Message Status](https://mobilemessage.com.au/api-documentation) |
-| `client.track_delivery(message_id:, timeout:, check_interval:)` | `GET /v1/messages/:id` (polling) | Poll message status until delivered or failed | [Message Status](https://mobilemessage.com.au/api-documentation) |
+| `client.get_message_status(message_id:, custom_ref:)` | `GET /v1/messages?message_id=...` | Get delivery status for message(s) | [Lookup Messages](https://mobilemessage.com.au/api-documentation) |
+| `client.track_delivery(message_id:, timeout:, check_interval:)` | `GET /v1/messages` (polling) | Poll message status until delivered or failed | [Lookup Messages](https://mobilemessage.com.au/api-documentation) |
 | **Account Management** |
-| `client.get_balance()` | `GET /v1/account/balance` | Get current account balance and details | [Account Balance](https://mobilemessage.com.au/api-documentation) |
-| `client.balance()` | `GET /v1/account/balance` | Alias for get_balance() | [Account Balance](https://mobilemessage.com.au/api-documentation) |
-| **Receiving Messages** |
-| `client.get_messages(page:, per_page:, unread_only:)` | `GET /v1/messages/received` | Retrieve received SMS messages (polling) | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
-| `client.received_messages()` | `GET /v1/messages/received` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
-| `client.inbound_messages()` | `GET /v1/messages/received` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.get_balance()` | `GET /v1/account` | Get current account credit balance | [Account Balance](https://mobilemessage.com.au/api-documentation) |
+| `client.balance()` | `GET /v1/account` | Alias for get_balance() | [Account Balance](https://mobilemessage.com.au/api-documentation) |
 | **Webhook Handling** |
-| `client.parse_webhook(payload)` | - | Parse inbound webhook payload from Mobile Message | [Webhooks](https://mobilemessage.com.au/api-documentation) |
+| `client.parse_webhook(payload)` | - | Parse inbound or status webhook payload | [Webhooks](https://mobilemessage.com.au/api-documentation) |
 | `client.verify_webhook_signature(payload:, signature:, secret:)` | - | Verify webhook signature for security | [Webhooks](https://mobilemessage.com.au/api-documentation) |
 
 ### Method Details
@@ -629,16 +697,17 @@ client = MobileMessage.raw_sms(
 
 ---
 
-#### send_sms(to:, body:, from:, unicode:)
+#### send_sms(to:, message:, sender:, unicode:, custom_ref:)
 
 Send a single SMS message.
 
 ```ruby
 response = client.send_sms(
-  to: '+61400000000',      # Required: recipient phone number
-  body: 'Your message',     # Required: message text
-  from: 'YourBrand',       # Optional: sender ID (uses default_from if not provided)
-  unicode: false           # Optional: enable for emojis/special characters
+  to: '0412345678',         # Required: recipient phone number (local or international format)
+  message: 'Your message',  # Required: message text
+  sender: 'YourBrand',      # Optional: sender ID (uses default_from if not provided)
+  unicode: false,           # Optional: enable for emojis/special characters
+  custom_ref: 'ref_001'     # Optional: your custom reference for tracking
 )
 ```
 
@@ -646,31 +715,54 @@ response = client.send_sms(
 **API Request Format:**
 ```json
 {
+  "enable_unicode": true,
   "messages": [
     {
-      "to": "+61400000000",
-      "from": "YourBrand",
-      "body": "Your message",
-      "unicode": false
+      "to": "0412345678",
+      "sender": "YourBrand",
+      "message": "Your message",
+      "custom_ref": "ref_001",
+      "unicode": true
     }
   ]
 }
 ```
 
-**Enhanced Response Methods:** `.success?`, `.first_message_id`, `.sent_count`, `.messages`
+**API Response:**
+```json
+{
+  "status": "complete",
+  "total_cost": 1,
+  "results": [
+    {
+      "to": "0412345678",
+      "message": "Your message",
+      "sender": "YourBrand",
+      "custom_ref": "ref_001",
+      "status": "success",
+      "cost": 1,
+      "message_id": "abcd1234-efgh-5678-ijkl-9876543210mn",
+      "encoding": "gsm7"
+    }
+  ]
+}
+```
+
+**Enhanced Response Methods:** `.success?`, `.first_message_id`, `.sent_count`, `.total_cost`, `.messages`
 
 ---
 
-#### send_bulk(messages:)
+#### send_bulk(messages:, enable_unicode:)
 
 Send multiple different messages in one API call (up to 100 messages).
 
 ```ruby
 response = client.send_bulk(
   messages: [
-    { to: '+61400000001', body: 'Message 1', from: 'Brand' },
-    { to: '+61400000002', body: 'Message 2', from: 'Brand', unicode: true }
-  ]
+    { to: '0412345678', message: 'Message 1', sender: 'Brand', custom_ref: 'ref1' },
+    { to: '0412345679', message: 'Message 2 🎉', sender: 'Brand', unicode: true }
+  ],
+  enable_unicode: true  # Optional: global unicode setting
 )
 ```
 
@@ -678,59 +770,72 @@ response = client.send_bulk(
 **API Request Format:**
 ```json
 {
+  "enable_unicode": true,
   "messages": [
-    { "to": "+61400000001", "from": "Brand", "body": "Message 1", "unicode": false },
-    { "to": "+61400000002", "from": "Brand", "body": "Message 2", "unicode": true }
+    { "to": "0412345678", "sender": "Brand", "message": "Message 1", "custom_ref": "ref1" },
+    { "to": "0412345679", "sender": "Brand", "message": "Message 2 🎉", "unicode": true }
   ]
 }
 ```
 
-**Enhanced Response Methods:** `.success?`, `.sent_count`, `.failed_count`, `.all_successful?`, `.each_message`
+**Enhanced Response Methods:** `.success?`, `.sent_count`, `.failed_count`, `.total_cost`, `.all_successful?`, `.each_message`
 
 ---
 
-#### broadcast(to_numbers:, body:, from:, unicode:)
+#### broadcast(to_numbers:, message:, sender:, unicode:, custom_ref:)
 
 Convenience method to send the same message to multiple recipients.
 
 ```ruby
 response = client.broadcast(
-  to_numbers: ['+61400000001', '+61400000002', '+61400000003'],
-  body: 'Same message for all',
-  from: 'YourBrand'
+  to_numbers: ['0412345678', '0412345679', '0412345680'],
+  message: 'Same message for all',
+  sender: 'YourBrand',
+  custom_ref: 'broadcast_001'
 )
 ```
 
 **Maps to:** `POST /v1/messages` (internally converts to send_bulk format)  
-**Enhanced Response Methods:** `.success?`, `.sent_count`, `.messages`
+**Enhanced Response Methods:** `.success?`, `.sent_count`, `.total_cost`, `.messages`
 
 ---
 
-#### get_message_status(message_id:)
+#### get_message_status(message_id:, custom_ref:)
 
-Get delivery status and details for a specific message.
+Get delivery status and details for message(s). Search by message_id or custom_ref (use % for wildcard).
 
 ```ruby
-response = client.get_message_status(message_id: 'msg_12345')
+# By message_id
+response = client.get_message_status(message_id: 'abcd1234-efgh-5678-ijkl-9876543210mn')
+
+# By custom_ref
+response = client.get_message_status(custom_ref: 'tracking001')
+
+# Wildcard search
+response = client.get_message_status(custom_ref: 'tracking%')
 ```
 
-**Maps to:** `GET /v1/messages/{message_id}`  
+**Maps to:** `GET /v1/messages?message_id=...` or `GET /v1/messages?custom_ref=...`  
 **API Response Example:**
 ```json
 {
-  "success": true,
-  "message": {
-    "message_id": "msg_12345",
-    "to": "+61400000000",
-    "from": "YourBrand",
-    "body": "Message text",
-    "status": "delivered",
-    "delivered_at": "2024-01-15T10:30:00Z"
-  }
+  "status": "complete",
+  "results": [
+    {
+      "to": "+61412345678",
+      "message": "Hello, this is message 1",
+      "sender": "CompanyABC",
+      "custom_ref": "tracking001",
+      "status": "success",
+      "cost": 1,
+      "message_id": "abcd1234-efgh-5678-ijkl-9876543210mn",
+      "requested_at": "2024-09-30 14:35:00"
+    }
+  ]
 }
 ```
 
-**Enhanced Response Methods:** `.delivered?`, `.pending?`, `.failed?`, `.status`, `.delivery_timestamp`
+**Enhanced Response Methods:** `.delivered?`, `.pending?`, `.failed?`, `.status`, `.requested_at`, `.custom_ref`, `.cost`
 
 ---
 
@@ -746,88 +851,83 @@ response = client.track_delivery(
 )
 ```
 
-**Maps to:** Repeated `GET /v1/messages/{message_id}` calls  
+**Maps to:** Repeated `GET /v1/messages?message_id=...` calls  
 **Best Practice:** Use webhooks for production - this method is only suitable for single message tracking
 
 ---
 
 #### get_balance()
 
-Get current account balance and credit information.
+Get current account credit balance.
 
 ```ruby
 response = client.get_balance
 # Or use alias: client.balance
 ```
 
-**Maps to:** `GET /v1/account/balance`  
+**Maps to:** `GET /v1/account`  
 **API Response Example:**
 ```json
 {
-  "success": true,
-  "balance": 100.50,
-  "currency": "AUD",
-  "account_name": "Your Account"
+  "status": "complete",
+  "credit_balance": 1000
 }
 ```
 
-**Enhanced Response Methods:** `.balance`, `.currency`, `.formatted_balance`, `.low_balance?(threshold)`
-
----
-
-#### get_messages(page:, per_page:, unread_only:)
-
-Retrieve received SMS messages via polling.
-
-```ruby
-response = client.get_messages(
-  page: 1,              # Optional: page number (default: 1)
-  per_page: 100,        # Optional: messages per page (default: 100)
-  unread_only: false    # Optional: only unread messages (default: false)
-)
-# Aliases: client.received_messages, client.inbound_messages
-```
-
-**Maps to:** `GET /v1/messages/received?page=1&per_page=100`  
-**API Response Example:**
-```json
-{
-  "success": true,
-  "messages": [
-    {
-      "message_id": "msg_67890",
-      "from": "+61400000001",
-      "to": "+61400000000",
-      "body": "Reply message",
-      "received_at": "2024-01-15T10:30:00Z",
-      "unicode": false
-    }
-  ],
-  "total_count": 42,
-  "page": 1,
-  "per_page": 100
-}
-```
-
-**Enhanced Response Methods:** `.messages`, `.total_count`, `.page`, `.total_pages`, `.has_more?`, `.each_message`
+**Enhanced Response Methods:** `.balance`, `.credit_balance`, `.formatted_balance`, `.low_balance?(threshold)`
 
 ---
 
 #### parse_webhook(payload)
 
-Parse webhook payload received from Mobile Message for real-time message notifications.
+Parse webhook payload received from Mobile Message. Automatically detects inbound messages vs status updates.
 
 ```ruby
 # In your webhook endpoint (Rails, Sinatra, etc.)
-message = client.parse_webhook(request.body.read)
-puts message.from
-puts message.body
-puts message.received_at
+webhook_data = client.parse_webhook(request.body.read)
+
+case webhook_data
+when MobileMessage::SMS::InboundMessage
+  # Handle inbound SMS or unsubscribe
+  puts webhook_data.from
+  puts webhook_data.body
+  puts webhook_data.type  # "inbound" or "unsubscribe"
+when MobileMessage::SMS::StatusUpdate
+  # Handle delivery status update
+  puts webhook_data.message_id
+  puts webhook_data.status  # "delivered" or "failed"
+end
 ```
 
-**Maps to:** N/A (parses webhook POST data)  
-**Webhook Payload Format:** Same as messages in get_messages response  
-**Returns:** `InboundMessage` object with methods: `.message_id`, `.from`, `.to`, `.body`, `.received_at`, `.unicode?`
+**Maps to:** N/A (parses webhook POST data)
+
+**Inbound Webhook Payload Format:**
+```json
+{
+  "to": "61412345678",
+  "message": "Hello, this is message 1",
+  "sender": "61412345699",
+  "received_at": "2024-09-30 14:35:00",
+  "type": "inbound",
+  "original_message_id": "db6190e1-1ce8-4cdd-b871-244257d57abc",
+  "original_custom_ref": "tracking001"
+}
+```
+
+**Status Webhook Payload Format:**
+```json
+{
+  "to": "61412345678",
+  "message": "Hello, this is message 1",
+  "sender": "Mobile MSG",
+  "custom_ref": "tracking001",
+  "status": "delivered",
+  "message_id": "044b035f-0396-4a47-8428-12d5273ab04a",
+  "received_at": "2024-09-30 14:35:00"
+}
+```
+
+**Returns:** `InboundMessage` or `StatusUpdate` object
 
 ---
 
@@ -853,9 +953,11 @@ is_valid = client.verify_webhook_signature(
 The gem supports all core Mobile Message API endpoints:
 
 - `POST /v1/messages` - Send SMS messages (single or bulk up to 100)
-- `GET /v1/messages/:id` - Get message delivery status
-- `GET /v1/messages/received` - Get received messages (polling)
-- `GET /v1/account/balance` - Get account balance and credits
+- `GET /v1/messages` - Get message delivery status (by message_id or custom_ref)
+- `GET /v1/account` - Get account credit balance
+- Webhooks (configured in account settings):
+  - Inbound URL - Receive SMS replies and unsubscribe requests
+  - Status URL - Receive delivery receipt notifications
 
 ### Authentication
 
