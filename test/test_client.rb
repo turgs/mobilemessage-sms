@@ -149,8 +149,8 @@ class TestClient < Minitest::Test
     refute response.low_balance?
   end
 
-  def test_get_messages
-    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?page=1&per_page=100&type=inbound")
+  def test_get_messages_empty
+    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?type=inbound")
       .to_return(
         status: 200,
         body: { "error" => "No inbound or unsubscribe messages found." }.to_json,
@@ -166,21 +166,19 @@ class TestClient < Minitest::Test
   end
 
   def test_get_messages_with_results
-    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?page=1&per_page=100&type=inbound")
+    # API returns direct array when messages exist
+    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?type=inbound")
       .to_return(
         status: 200,
-        body: {
-          "status" => "complete",
-          "results" => [
-            {
-              "to" => "61412345678",
-              "message" => "Test inbound",
-              "sender" => "61412345699",
-              "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
-              "type" => "inbound"
-            }
-          ]
-        }.to_json,
+        body: [
+          {
+            "to" => "61480808165",
+            "message" => "What's up",
+            "sender" => "61403309564",
+            "received_at" => "2025-10-19 12:59:17",
+            "type" => "inbound"
+          }
+        ].to_json,
         headers: { "Content-Type" => "application/json" }
       )
 
@@ -190,6 +188,8 @@ class TestClient < Minitest::Test
     assert response.success?
     assert_equal 1, response.messages.count
     refute response.empty?
+    assert_equal "61403309564", response.messages.first.from
+    assert_equal "What's up", response.messages.first.body
   end
 
   def test_authentication_error

@@ -2,7 +2,9 @@
 # frozen_string_literal: true
 
 # Polling for inbound messages using GET /v1/messages?type=inbound
-# Note: For production, webhooks are recommended for real-time delivery
+# Note: API only returns the MOST RECENT inbound message
+# Messages don't disappear after being read
+# For production, webhooks are recommended for real-time delivery
 
 require 'mobilemessage'
 
@@ -15,45 +17,42 @@ client = MobileMessage.enhanced_sms(
 puts "=" * 60
 puts "Polling for Inbound Messages"
 puts "=" * 60
-puts "\nNote: Webhooks are recommended for production as they provide"
-puts "real-time notifications without the overhead of polling.\n\n"
+puts "\nIMPORTANT:"
+puts "- API only returns the MOST RECENT inbound message"
+puts "- Messages persist and don't disappear after being read"
+puts "- Timestamps are in UTC"
+puts "- Webhooks are recommended for production\n\n"
 
 # Example 1: Simple polling
-puts "Example 1: Checking for inbound messages"
+puts "Example 1: Checking for most recent inbound message"
 response = client.get_messages
 
 if response.success?
   if response.empty?
-    puts "✓ No new inbound messages"
+    puts "✓ No inbound messages"
   else
-    puts "✓ Found #{response.messages.count} inbound message(s)"
+    message = response.messages.first
+    puts "✓ Most recent inbound message:"
+    puts "\n  From: #{message.from}"
+    puts "  To: #{message.to}"
+    puts "  Message: #{message.body}"
+    puts "  Type: #{message.type}" # "inbound" or "unsubscribe"
+    puts "  Received: #{message.received_at} (UTC)"
     
-    response.each_message do |message|
-      puts "\n  Message:"
-      puts "    From: #{message.from}"
-      puts "    To: #{message.to}"
-      puts "    Message: #{message.body}"
-      puts "    Type: #{message.type}" # "inbound" or "unsubscribe"
-      puts "    Received: #{message.received_at}"
-      
-      if message.original_message_id
-        puts "    Reply to: #{message.original_message_id}"
-        puts "    Original ref: #{message.original_custom_ref}"
-      end
+    if message.original_message_id
+      puts "  Reply to: #{message.original_message_id}"
+      puts "  Original ref: #{message.original_custom_ref}"
     end
   end
 else
   puts "✗ Failed to retrieve messages: #{response.error_message}"
 end
 
-# Example 2: Polling with custom parameters
-puts "\nExample 2: Polling with pagination"
-response = client.get_messages(page: 1, per_page: 50)
-puts "  Retrieved: #{response.messages.count} messages"
+# Example 2: Polling loop (for demonstration)
+puts "\nExample 2: Continuous polling (3 iterations)"
+puts "  Note: API returns same message until a new one arrives\n"
 
-# Example 3: Polling loop (for demonstration)
-puts "\nExample 3: Continuous polling (3 iterations)"
-puts "  In production, run this as a background job/daemon\n"
+last_message_id = nil
 
 3.times do |i|
   puts "  Poll #{i + 1}:"
@@ -63,11 +62,15 @@ puts "  In production, run this as a background job/daemon\n"
     
     if response.success?
       if response.empty?
-        puts "    No new messages"
+        puts "    No messages"
       else
-        puts "    Found #{response.messages.count} message(s)"
-        response.each_message do |msg|
-          puts "    - #{msg.from}: #{msg.body[0..50]}..."
+        msg = response.messages.first
+        # Check if this is a new message or the same one
+        if msg.message_id == last_message_id
+          puts "    Same message as before"
+        else
+          puts "    New message from #{msg.from}: #{msg.body[0..50]}..."
+          last_message_id = msg.message_id
         end
       end
     else
@@ -88,9 +91,11 @@ puts <<~INFO
   **Polling (GET /v1/messages?type=inbound):**
   ✓ Simple to implement
   ✓ No external endpoint needed
+  ✗ Only returns MOST RECENT message
   ✗ Delayed notifications (depends on polling interval)
   ✗ Increased API usage
   ✗ Less efficient
+  ✗ Can miss messages if multiple arrive between polls
   
   **Webhooks (Recommended):**
   ✓ Real-time notifications

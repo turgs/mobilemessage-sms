@@ -155,13 +155,10 @@ module MobileMessage
       alias balance get_balance
 
       # Get received messages (polling via type=inbound parameter)
-      # Note: For production, webhooks are recommended for real-time delivery.
-      # This polls the API which is less efficient than webhooks.
-      def get_messages(page: 1, per_page: 100)
+      # Note: API only returns the most recent inbound message. Messages don't disappear after being read.
+      # For production, webhooks are recommended for real-time delivery.
+      def get_messages
         params = { type: 'inbound' }
-        params[:page] = page if page
-        params[:per_page] = per_page if per_page
-
         response = with_retry { @http_client.get("messages", params: params) }
         wrap_response(InboundMessagesResponse, response)
       end
@@ -341,27 +338,6 @@ module MobileMessage
         {
           "status" => "complete",
           "credit_balance" => 1000
-        }
-      end
-
-      def generate_received_messages_response(params)
-        messages_data = [
-          {
-            "message_id" => "sandbox_received_1",
-            "from" => "+61400000001",
-            "to" => "+61400000000",
-            "body" => "Test received message",
-            "received_at" => Time.now.iso8601,
-            "unicode" => false
-          }
-        ]
-        
-        {
-          "success" => true,
-          "messages" => messages_data,
-          "total_count" => messages_data.length,
-          "page" => params[:page] || 1,
-          "per_page" => params[:per_page] || 100
         }
       end
     end

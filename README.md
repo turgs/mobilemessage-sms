@@ -332,33 +332,34 @@ You can also poll for inbound messages using the `GET /v1/messages?type=inbound`
 
 ```ruby
 # Poll for inbound messages
+# Note: API only returns the most recent inbound message
+# Messages don't disappear after being read - they can be re-read
 response = client.get_messages
 
 if response.success?
   if response.empty?
-    puts "No new inbound messages"
+    puts "No inbound messages"
   else
-    puts "Found #{response.messages.count} inbound message(s)"
-    
-    response.each_message do |message|
-      puts "From: #{message.from}"
-      puts "To: #{message.to}"
-      puts "Message: #{message.body}"
-      puts "Type: #{message.type}" # "inbound" or "unsubscribe"
-      puts "Received: #{message.received_at}"
-    end
+    puts "Most recent inbound message:"
+    message = response.messages.first
+    puts "From: #{message.from}"
+    puts "To: #{message.to}"
+    puts "Message: #{message.body}"
+    puts "Type: #{message.type}" # "inbound" or "unsubscribe"
+    puts "Received: #{message.received_at}" # UTC timestamp
   end
 end
-
-# Polling with custom parameters
-response = client.get_messages(page: 1, per_page: 50)
 
 # Alternative method names
 response = client.received_messages
 response = client.inbound_messages
 ```
 
-**Note:** Webhooks are recommended for production as they provide real-time notifications without the overhead of polling.
+**Important Notes:**
+- API only returns the **most recent** inbound message
+- Messages persist and don't disappear after being read
+- Timestamps are in UTC
+- Webhooks are recommended for production as they provide real-time notifications
 
 ### Webhook Handling
 
@@ -450,11 +451,13 @@ response.formatted_balance  # String: Formatted balance ("1000 credits")
 
 ```ruby
 response.success?           # Boolean: API call successful
-response.messages           # Array<InboundMessage>: Inbound message objects
-response.total_count        # Integer: Number of messages
+response.messages           # Array<InboundMessage>: Inbound message objects (usually 1 item)
+response.total_count        # Integer: Number of messages (0 or 1)
 response.empty?             # Boolean: No messages found
 response.each_message { |msg| ... }  # Iterator
 ```
+
+**Note:** API only returns the most recent inbound message (0 or 1 result)
 
 ### InboundMessage (Webhook Data)
 
@@ -718,7 +721,7 @@ This table shows every public method in this gem and how it maps to the official
 | `client.get_balance()` | `GET /v1/account` | Get current account credit balance | [Account Balance](https://mobilemessage.com.au/api-documentation) |
 | `client.balance()` | `GET /v1/account` | Alias for get_balance() | [Account Balance](https://mobilemessage.com.au/api-documentation) |
 | **Receiving Messages** |
-| `client.get_messages(page:, per_page:)` | `GET /v1/messages?type=inbound` | Poll for inbound SMS messages | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.get_messages()` | `GET /v1/messages?type=inbound` | Poll for most recent inbound SMS message | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
 | `client.received_messages()` | `GET /v1/messages?type=inbound` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
 | `client.inbound_messages()` | `GET /v1/messages?type=inbound` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
 | **Webhook Handling** |

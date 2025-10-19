@@ -310,50 +310,22 @@ module MobileMessage
       end
     end
 
-    # Response for listing messages
-    class MessagesListResponse < BaseResponse
-      def messages
-        @messages ||= (@raw_response["messages"] || []).map { |m| InboundMessage.new(m) }
-      end
-
-      def total_count
-        @raw_response["total_count"] || messages.count
-      end
-
-      def page
-        @raw_response["page"] || 1
-      end
-
-      def per_page
-        @raw_response["per_page"] || 100
-      end
-
-      def total_pages
-        return 1 if per_page.zero?
-
-        (total_count.to_f / per_page).ceil
-      end
-
-      def has_more?
-        page < total_pages
-      end
-
-      def each_message(&block)
-        messages.each(&block)
-      end
-    end
-
     # Response for inbound messages polling (type=inbound)
     # API returns {"error": "No inbound or unsubscribe messages found."} when empty
+    # API returns array of message objects when messages exist: [{"to": "...", "message": "...", ...}]
     class InboundMessagesResponse < BaseResponse
       def success?
-        # Both "complete" status and "error" with no messages are considered success
-        @raw_response["status"] == "complete" || @raw_response["error"]&.include?("No inbound")
+        # Success if we get an array (even empty) or an error object indicating no messages
+        @raw_response.is_a?(Array) || @raw_response["error"]&.include?("No inbound")
       end
 
       def messages
-        # Parse results array if present, otherwise empty array
-        @messages ||= (@raw_response["results"] || []).map { |m| InboundMessage.new(m) }
+        # API returns direct array when messages exist, or error object when empty
+        @messages ||= if @raw_response.is_a?(Array)
+                        @raw_response.map { |m| InboundMessage.new(m) }
+                      else
+                        []
+                      end
       end
 
       def total_count

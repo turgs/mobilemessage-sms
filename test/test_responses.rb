@@ -127,25 +127,23 @@ class TestResponses < Minitest::Test
   end
 
   def test_inbound_messages_response_with_messages
-    raw = {
-      "status" => "complete",
-      "results" => [
-        {
-          "to" => "61412345678",
-          "message" => "Test message",
-          "sender" => "61412345699",
-          "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
-          "type" => "inbound"
-        }
-      ]
-    }
+    # API returns direct array when messages exist
+    raw = [
+      {
+        "to" => "61480808165",
+        "message" => "What's up",
+        "sender" => "61403309564",
+        "received_at" => "2025-10-19 12:59:17",
+        "type" => "inbound"
+      }
+    ]
     response = MobileMessage::SMS::InboundMessagesResponse.new(raw)
 
     assert response.success?
     assert_equal 1, response.messages.count
     refute response.empty?
-    assert_equal "61412345699", response.messages.first.from
-    assert_equal "Test message", response.messages.first.body
+    assert_equal "61403309564", response.messages.first.from
+    assert_equal "What's up", response.messages.first.body
   end
 
   def test_chainable_operations
