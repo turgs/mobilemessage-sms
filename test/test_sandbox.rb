@@ -23,8 +23,8 @@ class TestSandbox < Minitest::Test
     )
 
     response = client.send_sms(
-      to: "+61400000000",
-      body: "Test message"
+      to: "0412345678",
+      message: "Test message"
     )
 
     assert response.success?
@@ -41,8 +41,7 @@ class TestSandbox < Minitest::Test
     response = client.get_balance
 
     assert response.success?
-    assert_equal 100.50, response.balance
-    assert_equal "Sandbox Account", response.account_name
+    assert_equal 1000, response.balance
   end
 
   def test_sandbox_get_message_status
@@ -67,8 +66,8 @@ class TestSandbox < Minitest::Test
     response = client.get_messages
 
     assert response.success?
-    assert_equal 1, response.messages.count
-    assert_equal 1, response.total_count
+    assert_equal 0, response.messages.count
+    assert response.empty?
   end
 
   def test_sandbox_broadcast
@@ -79,8 +78,8 @@ class TestSandbox < Minitest::Test
     )
 
     response = client.broadcast(
-      to_numbers: ["+61400000001", "+61400000002", "+61400000003"],
-      body: "Broadcast message"
+      to_numbers: ["0412345678", "0412345679", "0412345680"],
+      message: "Broadcast message"
     )
 
     assert response.success?

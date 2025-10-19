@@ -20,9 +20,10 @@ class TestResponses < Minitest::Test
 
   def test_send_sms_response_with_failures
     raw = {
-      "success" => true,
-      "messages" => [
-        { "message_id" => "1", "status" => "queued" },
+      "status" => "complete",
+      "total_cost" => 2,
+      "results" => [
+        { "message_id" => "1", "status" => "success" },
         { "message_id" => "2", "status" => "failed" }
       ]
     }
@@ -40,8 +41,8 @@ class TestResponses < Minitest::Test
 
     assert response.success?
     assert_equal "msg_12345", response.message_id
-    assert_equal "delivered", response.status
-    assert response.delivered?
+    assert_equal "success", response.status
+    assert response.delivered?  # "success" status means delivered
     refute response.pending?
     refute response.failed?
   end
@@ -56,17 +57,17 @@ class TestResponses < Minitest::Test
   end
 
   def test_balance_response
-    raw = sample_balance_response(balance: 50.25)
+    raw = sample_balance_response(balance: 50)
     response = MobileMessage::SMS::BalanceResponse.new(raw)
 
     assert response.success?
-    assert_equal 50.25, response.balance
+    assert_equal 50, response.balance
     assert_equal "AUD", response.currency
-    assert_equal "AUD 50.25", response.formatted_balance
+    assert_equal "50 credits", response.formatted_balance
   end
 
   def test_balance_response_low_balance
-    raw = sample_balance_response(balance: 5.0)
+    raw = sample_balance_response(balance: 5)
     response = MobileMessage::SMS::BalanceResponse.new(raw)
 
     assert response.low_balance?(10)
@@ -76,11 +77,11 @@ class TestResponses < Minitest::Test
   def test_inbound_message
     data = {
       "message_id" => "msg_123",
-      "from" => "+61400000001",
+      "sender" => "+61400000001",
       "to" => "+61400000000",
-      "body" => "Hello",
-      "received_at" => Time.now.iso8601,
-      "unicode" => false
+      "message" => "Hello",
+      "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
+      "type" => "inbound"
     }
     message = MobileMessage::SMS::InboundMessage.new(data)
 
@@ -88,27 +89,61 @@ class TestResponses < Minitest::Test
     assert_equal "+61400000001", message.from
     assert_equal "+61400000000", message.to
     assert_equal "Hello", message.body
-    refute message.unicode?
+    assert_equal "inbound", message.type
+    assert message.inbound?
     assert_instance_of Time, message.received_at
   end
 
-  def test_messages_list_response
-    raw = sample_received_messages_response(count: 5, page: 1)
-    raw["per_page"] = 2
-    response = MobileMessage::SMS::MessagesListResponse.new(raw)
+  def test_status_update
+    data = {
+      "message_id" => "msg_123",
+      "custom_ref" => "tracking001",
+      "to" => "+61400000000",
+      "sender" => "CompanyABC",
+      "message" => "Hello",
+      "status" => "delivered",
+      "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    status = MobileMessage::SMS::StatusUpdate.new(data)
+
+    assert_equal "msg_123", status.message_id
+    assert_equal "tracking001", status.custom_ref
+    assert_equal "+61400000000", status.to
+    assert_equal "CompanyABC", status.sender
+    assert_equal "Hello", status.body
+    assert_equal "delivered", status.status
+    assert status.delivered?
+    refute status.failed?
+    assert_instance_of Time, status.received_at
+  end
+
+  def test_inbound_messages_response_empty
+    raw = { "error" => "No inbound or unsubscribe messages found." }
+    response = MobileMessage::SMS::InboundMessagesResponse.new(raw)
 
     assert response.success?
-    assert_equal 5, response.messages.count
-    assert_equal 5, response.total_count
-    assert_equal 1, response.page
-    assert_equal 2, response.per_page
-    assert_equal 3, response.total_pages
-    assert response.has_more?
+    assert_equal 0, response.messages.count
+    assert response.empty?
+  end
 
-    # Test each_message iterator
-    count = 0
-    response.each_message { |msg| count += 1 }
-    assert_equal 5, count
+  def test_inbound_messages_response_with_messages
+    # API returns direct array when messages exist
+    raw = [
+      {
+        "to" => "61480808165",
+        "message" => "What's up",
+        "sender" => "61403309564",
+        "received_at" => "2025-10-19 12:59:17",
+        "type" => "inbound"
+      }
+    ]
+    response = MobileMessage::SMS::InboundMessagesResponse.new(raw)
+
+    assert response.success?
+    assert_equal 1, response.messages.count
+    refute response.empty?
+    assert_equal "61403309564", response.messages.first.from
+    assert_equal "What's up", response.messages.first.body
   end
 
   def test_chainable_operations
