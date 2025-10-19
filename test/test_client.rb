@@ -45,14 +45,15 @@ class TestClient < Minitest::Test
 
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     response = client.send_sms(
-      to: "+61400000000",
-      body: "Test message",
-      from: "TestSender"
+      to: "0412345678",
+      message: "Test message",
+      sender: "TestSender"
     )
 
     assert response.success?
     assert_equal 1, response.messages.count
     assert_match(/^msg_/, response.first_message_id)
+    assert_equal 1, response.total_cost
   end
 
   def test_send_sms_uses_default_from
@@ -66,7 +67,7 @@ class TestClient < Minitest::Test
       **sample_credentials,
       default_from: "DefaultSender"
     )
-    response = client.send_sms(to: "+61400000000", body: "Test")
+    response = client.send_sms(to: "0412345678", message: "Test")
 
     assert response.success?
   end
@@ -74,9 +75,9 @@ class TestClient < Minitest::Test
   def test_send_sms_requires_from
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     error = assert_raises(ArgumentError) do
-      client.send_sms(to: "+61400000000", body: "Test")
+      client.send_sms(to: "0412345678", message: "Test")
     end
-    assert_match(/from.*required/, error.message)
+    assert_match(/sender.*required/, error.message)
   end
 
   def test_send_bulk_success
@@ -88,9 +89,9 @@ class TestClient < Minitest::Test
 
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     messages = [
-      { to: "+61400000001", body: "Message 1", from: "Sender" },
-      { to: "+61400000002", body: "Message 2", from: "Sender" },
-      { to: "+61400000003", body: "Message 3", from: "Sender" }
+      { to: "0412345678", message: "Message 1", sender: "Sender" },
+      { to: "0412345679", message: "Message 2", sender: "Sender" },
+      { to: "0412345680", message: "Message 3", sender: "Sender" }
     ]
 
     response = client.send_bulk(messages: messages)
@@ -108,9 +109,9 @@ class TestClient < Minitest::Test
 
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     response = client.broadcast(
-      to_numbers: ["+61400000001", "+61400000002"],
-      body: "Broadcast message",
-      from: "Sender"
+      to_numbers: ["0412345678", "0412345679"],
+      message: "Broadcast message",
+      sender: "Sender"
     )
 
     assert response.success?
@@ -118,11 +119,12 @@ class TestClient < Minitest::Test
   end
 
   def test_get_message_status
-    stub_api_request(
-      method: :get,
-      endpoint: "messages/msg_12345",
-      response_body: sample_message_status_response
-    )
+    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?message_id=msg_12345")
+      .to_return(
+        status: 200,
+        body: sample_message_status_response.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
 
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     response = client.get_message_status(message_id: "msg_12345")
@@ -135,7 +137,7 @@ class TestClient < Minitest::Test
   def test_get_balance
     stub_api_request(
       method: :get,
-      endpoint: "account/balance",
+      endpoint: "account",
       response_body: sample_balance_response
     )
 
@@ -143,25 +145,17 @@ class TestClient < Minitest::Test
     response = client.get_balance
 
     assert response.success?
-    assert_equal 100.50, response.balance
-    assert_equal "AUD", response.currency
+    assert_equal 1000, response.balance
     refute response.low_balance?
   end
 
-  def test_get_messages
-    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages/received?page=1&per_page=100")
-      .to_return(
-        status: 200,
-        body: sample_received_messages_response(count: 2).to_json,
-        headers: { "Content-Type" => "application/json" }
-      )
-
+  def test_get_messages_raises_not_implemented
     client = MobileMessage::SMS::Client.new(**sample_credentials)
-    response = client.get_messages
-
-    assert response.success?
-    assert_equal 2, response.messages.count
-    assert_equal 2, response.total_count
+    
+    error = assert_raises(NotImplementedError) do
+      client.get_messages
+    end
+    assert_match(/webhook/, error.message)
   end
 
   def test_authentication_error
@@ -171,7 +165,7 @@ class TestClient < Minitest::Test
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     
     error = assert_raises(MobileMessage::SMS::AuthenticationError) do
-      client.send_sms(to: "+61400000000", body: "Test", from: "Sender")
+      client.send_sms(to: "0412345678", message: "Test", sender: "Sender")
     end
     assert_match(/Authentication failed/, error.message)
   end
@@ -179,14 +173,14 @@ class TestClient < Minitest::Test
   def test_insufficient_credits_error
     stub_request(:post, "https://api.mobilemessage.com.au/v1/messages")
       .to_return(
-        status: 402,
+        status: 403,
         body: { error: { message: "Insufficient credits" } }.to_json
       )
 
     client = MobileMessage::SMS::Client.new(**sample_credentials)
     
     error = assert_raises(MobileMessage::SMS::InsufficientCreditsError) do
-      client.send_sms(to: "+61400000000", body: "Test", from: "Sender")
+      client.send_sms(to: "0412345678", message: "Test", sender: "Sender")
     end
     assert_match(/Insufficient credits/, error.message)
   end
@@ -202,7 +196,7 @@ class TestClient < Minitest::Test
     client = MobileMessage::SMS::Client.new(**sample_credentials, auto_retry: false)
     
     error = assert_raises(MobileMessage::SMS::RateLimitError) do
-      client.send_sms(to: "+61400000000", body: "Test", from: "Sender")
+      client.send_sms(to: "0412345678", message: "Test", sender: "Sender")
     end
     assert_equal 60, error.retry_after
   end
@@ -236,5 +230,35 @@ class TestClient < Minitest::Test
       signature: "short",
       secret: secret
     )
+  end
+
+  def test_parse_inbound_webhook
+    client = MobileMessage::SMS::Client.new(**sample_credentials)
+    payload = sample_inbound_webhook_payload
+    
+    message = client.parse_webhook(payload)
+    
+    assert_instance_of MobileMessage::SMS::InboundMessage, message
+    assert_equal "61412345699", message.from
+    assert_equal "61412345678", message.to
+    assert_equal "Hello, this is message 1", message.body
+    assert_equal "inbound", message.type
+    assert message.inbound?
+    assert_equal "db6190e1-1ce8-4cdd-b871-244257d57abc", message.original_message_id
+    assert_equal "tracking001", message.original_custom_ref
+  end
+
+  def test_parse_status_webhook
+    client = MobileMessage::SMS::Client.new(**sample_credentials)
+    payload = sample_status_webhook_payload
+    
+    status = client.parse_webhook(payload)
+    
+    assert_instance_of MobileMessage::SMS::StatusUpdate, status
+    assert_equal "044b035f-0396-4a47-8428-12d5273ab04a", status.message_id
+    assert_equal "tracking001", status.custom_ref
+    assert_equal "delivered", status.status
+    assert status.delivered?
+    refute status.failed?
   end
 end

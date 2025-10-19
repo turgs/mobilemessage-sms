@@ -36,14 +36,18 @@ module TestHelper
 
   def sample_success_response(messages_count: 1)
     {
-      "success" => true,
-      "messages" => Array.new(messages_count) do |i|
+      "status" => "complete",
+      "total_cost" => messages_count,
+      "results" => Array.new(messages_count) do |i|
         {
           "message_id" => "msg_#{Time.now.to_i}_#{i}",
-          "to" => "+61400000000",
-          "from" => "TestSender",
-          "body" => "Test message",
-          "status" => "queued"
+          "to" => "0412345678",
+          "sender" => "TestSender",
+          "message" => "Test message",
+          "custom_ref" => "ref_#{i}",
+          "status" => "success",
+          "cost" => 1,
+          "encoding" => "gsm7"
         }
       end
     }
@@ -59,45 +63,54 @@ module TestHelper
     }
   end
 
-  def sample_balance_response(balance: 100.50)
+  def sample_balance_response(balance: 1000)
     {
-      "success" => true,
-      "balance" => balance,
-      "currency" => "AUD",
-      "account_name" => "Test Account"
+      "status" => "complete",
+      "credit_balance" => balance
     }
   end
 
-  def sample_message_status_response(status: "delivered")
+  def sample_message_status_response(status: "success")
     {
-      "success" => true,
-      "message" => {
-        "message_id" => "msg_12345",
-        "to" => "+61400000000",
-        "from" => "TestSender",
-        "body" => "Test message",
-        "status" => status,
-        "delivered_at" => Time.now.iso8601
-      }
-    }
-  end
-
-  def sample_received_messages_response(count: 1, page: 1)
-    {
-      "success" => true,
-      "messages" => Array.new(count) do |i|
+      "status" => "complete",
+      "results" => [
         {
-          "message_id" => "received_#{i}",
-          "from" => "+61400000001",
-          "to" => "+61400000000",
-          "body" => "Received message #{i}",
-          "received_at" => Time.now.iso8601,
-          "unicode" => false
+          "message_id" => "msg_12345",
+          "to" => "0412345678",
+          "sender" => "TestSender",
+          "message" => "Test message",
+          "custom_ref" => "tracking001",
+          "status" => status,
+          "cost" => 1,
+          "requested_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S")
         }
-      end,
-      "total_count" => count,
-      "page" => page,
-      "per_page" => 100
+      ]
+    }
+  end
+
+  # Inbound messages are received via webhooks only, not polling
+  # This helper is kept for backward compatibility but should not be used
+  def sample_inbound_webhook_payload
+    {
+      "to" => "61412345678",
+      "message" => "Hello, this is message 1",
+      "sender" => "61412345699",
+      "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
+      "type" => "inbound",
+      "original_message_id" => "db6190e1-1ce8-4cdd-b871-244257d57abc",
+      "original_custom_ref" => "tracking001"
+    }
+  end
+
+  def sample_status_webhook_payload
+    {
+      "to" => "61412345678",
+      "message" => "Hello, this is message 1",
+      "sender" => "Mobile MSG",
+      "custom_ref" => "tracking001",
+      "status" => "delivered",
+      "message_id" => "044b035f-0396-4a47-8428-12d5273ab04a",
+      "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S")
     }
   end
 end
