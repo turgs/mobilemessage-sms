@@ -21,7 +21,7 @@ module MobileMessage
 
       # Check if response indicates success
       def success?
-        @raw_response["success"] == true
+        @raw_response["status"] == "complete"
       end
 
       def error?
@@ -56,7 +56,7 @@ module MobileMessage
     # Response for sending SMS messages
     class SendSmsResponse < BaseResponse
       def messages
-        @raw_response["messages"] || []
+        @raw_response["results"] || []
       end
 
       def message_ids
@@ -68,11 +68,11 @@ module MobileMessage
       end
 
       def sent_count
-        messages.count { |m| m["status"] == "queued" || m["status"] == "sent" }
+        messages.count { |m| m["status"] == "success" || m["status"] == "queued" || m["status"] == "sent" }
       end
 
       def failed_count
-        messages.count { |m| m["status"] == "failed" }
+        messages.count { |m| m["status"] == "failed" || m["status"] == "error" }
       end
 
       def all_successful?
@@ -81,6 +81,10 @@ module MobileMessage
 
       def has_failures?
         failed_count > 0
+      end
+
+      def total_cost
+        @raw_response["total_cost"] || 0
       end
 
       # Iterator for messages
@@ -96,8 +100,12 @@ module MobileMessage
 
     # Response for checking message status
     class MessageStatusResponse < BaseResponse
+      def results
+        @raw_response["results"] || []
+      end
+
       def message
-        @raw_response["message"] || {}
+        results.first || {}
       end
 
       def message_id
@@ -112,16 +120,24 @@ module MobileMessage
         message["to"]
       end
 
-      def from
-        message["from"]
+      def sender
+        message["sender"]
       end
 
       def body
-        message["body"]
+        message["message"]
+      end
+
+      def custom_ref
+        message["custom_ref"]
+      end
+
+      def cost
+        message["cost"]
       end
 
       def delivered?
-        status == "delivered"
+        status == "delivered" || status == "success"
       end
 
       def pending?
@@ -129,26 +145,33 @@ module MobileMessage
       end
 
       def failed?
-        status == "failed" || status == "rejected"
+        status == "failed" || status == "rejected" || status == "error"
       end
 
-      def delivery_timestamp
-        return nil unless message["delivered_at"]
+      def requested_at
+        return nil unless message["requested_at"]
 
-        Time.parse(message["delivered_at"])
+        Time.parse(message["requested_at"])
       rescue ArgumentError, TypeError
         nil
       end
+
+      # Legacy compatibility
+      alias from sender
+      alias delivery_timestamp requested_at
     end
 
     # Response for checking account balance
     class BalanceResponse < BaseResponse
       def balance
-        @raw_response["balance"] || 0
+        @raw_response["credit_balance"] || 0
       end
 
+      # Legacy alias
+      alias credit_balance balance
+
       def currency
-        @raw_response["currency"] || "AUD"
+        "AUD"  # Mobile Message API uses AUD
       end
 
       def account_name
@@ -160,7 +183,7 @@ module MobileMessage
       end
 
       def formatted_balance
-        "#{currency} #{balance}"
+        "#{balance} credits"
       end
     end
 
@@ -176,16 +199,42 @@ module MobileMessage
         @raw_data["message_id"]
       end
 
-      def from
-        @raw_data["from"]
+      def original_message_id
+        @raw_data["original_message_id"]
       end
+
+      def original_custom_ref
+        @raw_data["original_custom_ref"]
+      end
+
+      def from
+        @raw_data["sender"]
+      end
+
+      # Legacy compatibility
+      alias sender from
 
       def to
         @raw_data["to"]
       end
 
       def body
-        @raw_data["body"]
+        @raw_data["message"]
+      end
+
+      # Legacy compatibility
+      alias message body
+
+      def type
+        @raw_data["type"]
+      end
+
+      def inbound?
+        type == "inbound"
+      end
+
+      def unsubscribe?
+        type == "unsubscribe"
       end
 
       def received_at
@@ -198,6 +247,62 @@ module MobileMessage
 
       def unicode?
         @raw_data["unicode"] == true
+      end
+
+      def to_h
+        @raw_data
+      end
+    end
+
+    # Response for status webhook updates
+    class StatusUpdate
+      attr_reader :raw_data
+
+      def initialize(data)
+        @raw_data = data
+      end
+
+      def message_id
+        @raw_data["message_id"]
+      end
+
+      def custom_ref
+        @raw_data["custom_ref"]
+      end
+
+      def to
+        @raw_data["to"]
+      end
+
+      def sender
+        @raw_data["sender"]
+      end
+
+      def body
+        @raw_data["message"]
+      end
+
+      # Legacy compatibility
+      alias message body
+
+      def status
+        @raw_data["status"]
+      end
+
+      def delivered?
+        status == "delivered"
+      end
+
+      def failed?
+        status == "failed"
+      end
+
+      def received_at
+        return nil unless @raw_data["received_at"]
+
+        Time.parse(@raw_data["received_at"])
+      rescue ArgumentError, TypeError
+        nil
       end
 
       def to_h

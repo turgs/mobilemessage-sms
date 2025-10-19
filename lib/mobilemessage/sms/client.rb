@@ -37,80 +37,94 @@ module MobileMessage
       end
 
       # Send a single SMS message
-      def send_sms(to:, body:, from: nil, unicode: false)
-        from ||= @config.default_from
-        raise ArgumentError, "from (sender ID) is required" unless from
+      def send_sms(to:, message:, sender: nil, unicode: false, custom_ref: nil)
+        sender ||= @config.default_from
+        raise ArgumentError, "sender (sender ID) is required" unless sender
 
-        payload = {
-          messages: [
-            {
-              to: to,
-              from: from,
-              body: body,
-              unicode: unicode
-            }
-          ]
+        msg_data = {
+          to: to,
+          sender: sender,
+          message: message
         }
+        msg_data[:custom_ref] = custom_ref if custom_ref
+        msg_data[:unicode] = unicode if unicode
+
+        payload = { messages: [msg_data] }
+        payload[:enable_unicode] = unicode if unicode
 
         response = with_retry { @http_client.post("messages", body: payload) }
         wrap_response(SendSmsResponse, response)
       end
 
       # Send multiple SMS messages in one request
-      def send_bulk(messages:)
+      def send_bulk(messages:, enable_unicode: false)
         # Validate messages array
         raise ArgumentError, "messages must be an array" unless messages.is_a?(Array)
         raise ArgumentError, "messages array cannot be empty" if messages.empty?
+        raise ArgumentError, "messages array cannot exceed 100 messages" if messages.length > 100
 
         # Ensure each message has required fields
         messages.each_with_index do |msg, idx|
           raise ArgumentError, "Message #{idx} must be a Hash" unless msg.is_a?(Hash)
           raise ArgumentError, "Message #{idx} missing 'to' field" unless msg[:to] || msg["to"]
-          raise ArgumentError, "Message #{idx} missing 'body' field" unless msg[:body] || msg["body"]
+          raise ArgumentError, "Message #{idx} missing 'message' field" unless msg[:message] || msg["message"]
         end
 
-        # Format messages with default 'from' if not specified
+        # Format messages with default 'sender' if not specified
         formatted_messages = messages.map do |msg|
-          {
+          msg_data = {
             to: msg[:to] || msg["to"],
-            from: msg[:from] || msg["from"] || @config.default_from,
-            body: msg[:body] || msg["body"],
-            unicode: msg[:unicode] || msg["unicode"] || false
+            sender: msg[:sender] || msg["sender"] || @config.default_from,
+            message: msg[:message] || msg["message"]
           }
+          msg_data[:custom_ref] = msg[:custom_ref] || msg["custom_ref"] if msg[:custom_ref] || msg["custom_ref"]
+          msg_data[:unicode] = msg[:unicode] || msg["unicode"] if msg[:unicode] || msg["unicode"]
+          msg_data
         end
 
-        # Check that all messages have 'from'
+        # Check that all messages have 'sender'
         formatted_messages.each_with_index do |msg, idx|
-          raise ArgumentError, "Message #{idx} missing 'from' (sender ID)" unless msg[:from]
+          raise ArgumentError, "Message #{idx} missing 'sender' (sender ID)" unless msg[:sender]
         end
 
         payload = { messages: formatted_messages }
+        payload[:enable_unicode] = enable_unicode if enable_unicode
+
         response = with_retry { @http_client.post("messages", body: payload) }
         wrap_response(SendSmsResponse, response)
       end
 
       # Convenient method to send same message to multiple recipients
-      def broadcast(to_numbers:, body:, from: nil, unicode: false)
-        from ||= @config.default_from
-        raise ArgumentError, "from (sender ID) is required" unless from
+      def broadcast(to_numbers:, message:, sender: nil, unicode: false, custom_ref: nil)
+        sender ||= @config.default_from
+        raise ArgumentError, "sender (sender ID) is required" unless sender
         raise ArgumentError, "to_numbers must be an array" unless to_numbers.is_a?(Array)
         raise ArgumentError, "to_numbers array cannot be empty" if to_numbers.empty?
 
         messages = to_numbers.map do |number|
-          {
+          msg_data = {
             to: number,
-            from: from,
-            body: body,
-            unicode: unicode
+            sender: sender,
+            message: message
           }
+          msg_data[:custom_ref] = custom_ref if custom_ref
+          msg_data[:unicode] = unicode if unicode
+          msg_data
         end
 
-        send_bulk(messages: messages)
+        send_bulk(messages: messages, enable_unicode: unicode)
       end
 
       # Get message status and delivery information
-      def get_message_status(message_id:)
-        response = with_retry { @http_client.get("messages/#{message_id}") }
+      # Can search by message_id or custom_ref (use % for wildcard searches)
+      def get_message_status(message_id: nil, custom_ref: nil)
+        raise ArgumentError, "Either message_id or custom_ref is required" unless message_id || custom_ref
+        
+        params = {}
+        params[:message_id] = message_id if message_id
+        params[:custom_ref] = custom_ref if custom_ref
+
+        response = with_retry { @http_client.get("messages", params: params) }
         wrap_response(MessageStatusResponse, response)
       end
 
@@ -134,19 +148,20 @@ module MobileMessage
 
       # Get account balance
       def get_balance
-        response = with_retry { @http_client.get("account/balance") }
+        response = with_retry { @http_client.get("account") }
         wrap_response(BalanceResponse, response)
       end
 
       alias balance get_balance
 
-      # Get received messages (polling)
+      # Note: The Mobile Message API does not provide a polling endpoint for received messages.
+      # Instead, configure webhooks in your account settings to receive real-time notifications
+      # for inbound messages and delivery receipts.
+      # This method is kept for backwards compatibility but will raise an error.
       def get_messages(page: 1, per_page: 100, unread_only: false)
-        params = { page: page, per_page: per_page }
-        params[:unread] = true if unread_only
-
-        response = with_retry { @http_client.get("messages/received", params: params) }
-        wrap_response(MessagesListResponse, response)
+        raise NotImplementedError, "The Mobile Message API does not support polling for received messages. " \
+                                   "Please configure webhooks in your account settings at https://mobilemessage.com.au " \
+                                   "to receive inbound messages and delivery receipts in real-time."
       end
 
       alias received_messages get_messages
@@ -156,7 +171,16 @@ module MobileMessage
       def parse_webhook(payload)
         # Payload can be a JSON string or already parsed hash
         data = payload.is_a?(String) ? JSON.parse(payload) : payload
-        InboundMessage.new(data)
+        
+        # Determine webhook type based on presence of fields
+        if data["type"] # inbound message has type field
+          InboundMessage.new(data)
+        elsif data["status"] # status update has status field
+          StatusUpdate.new(data)
+        else
+          # Default to inbound message for backwards compatibility
+          InboundMessage.new(data)
+        end
       rescue JSON::ParserError
         raise ParseError.new("Failed to parse webhook payload", response: payload)
       end
@@ -244,15 +268,17 @@ module MobileMessage
       def generate_sandbox_response(endpoint, method, params: {}, body: {})
         case endpoint
         when "messages"
-          generate_send_sms_response(body)
-        when "messages/received"
-          generate_received_messages_response(params)
-        when "account/balance"
+          if method == :post
+            generate_send_sms_response(body)
+          elsif method == :get
+            generate_message_status_response(params)
+          else
+            { "status" => "complete", "message" => "Sandbox response" }
+          end
+        when "account"
           generate_balance_response
-        when /messages\/(.+)/
-          generate_message_status_response(Regexp.last_match(1))
         else
-          { "success" => true, "message" => "Sandbox response" }
+          { "status" => "complete", "message" => "Sandbox response" }
         end
       end
 
@@ -260,40 +286,47 @@ module MobileMessage
         messages = body[:messages] || []
         response_messages = messages.map.with_index do |msg, idx|
           {
-            "message_id" => "sandbox_msg_#{Time.now.to_i}_#{idx}",
             "to" => msg[:to],
-            "from" => msg[:from],
-            "body" => msg[:body],
-            "status" => "queued"
+            "message" => msg[:message],
+            "sender" => msg[:sender],
+            "custom_ref" => msg[:custom_ref],
+            "status" => "success",
+            "cost" => 1,
+            "message_id" => "sandbox_msg_#{Time.now.to_i}_#{idx}",
+            "encoding" => msg[:unicode] ? "ucs2" : "gsm7"
           }
         end
 
         {
-          "success" => true,
-          "messages" => response_messages
+          "status" => "complete",
+          "total_cost" => messages.length,
+          "results" => response_messages
         }
       end
 
-      def generate_message_status_response(message_id)
+      def generate_message_status_response(params)
+        message_id = params[:message_id] || "sandbox_msg_12345"
         {
-          "success" => true,
-          "message" => {
-            "message_id" => message_id,
-            "to" => "+61400000000",
-            "from" => "TestSender",
-            "body" => "Test message",
-            "status" => "delivered",
-            "delivered_at" => Time.now.iso8601
-          }
+          "status" => "complete",
+          "results" => [
+            {
+              "to" => "+61400000000",
+              "message" => "Test message",
+              "sender" => "TestSender",
+              "custom_ref" => params[:custom_ref] || "tracking001",
+              "status" => "success",
+              "cost" => 1,
+              "message_id" => message_id,
+              "requested_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S")
+            }
+          ]
         }
       end
 
       def generate_balance_response
         {
-          "success" => true,
-          "balance" => 100.50,
-          "currency" => "AUD",
-          "account_name" => "Sandbox Account"
+          "status" => "complete",
+          "credit_balance" => 1000
         }
       end
 
