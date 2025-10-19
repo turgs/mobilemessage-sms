@@ -57,16 +57,17 @@ class TestSandbox < Minitest::Test
     assert response.delivered?
   end
 
-  def test_sandbox_get_messages_raises_not_implemented
+  def test_sandbox_get_messages
     client = MobileMessage::SMS::Client.new(
       **sample_credentials,
       sandbox_mode: true
     )
 
-    error = assert_raises(NotImplementedError) do
-      client.get_messages
-    end
-    assert_match(/webhook/, error.message)
+    response = client.get_messages
+
+    assert response.success?
+    assert_equal 0, response.messages.count
+    assert response.empty?
   end
 
   def test_sandbox_broadcast

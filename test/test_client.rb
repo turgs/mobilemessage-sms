@@ -149,13 +149,47 @@ class TestClient < Minitest::Test
     refute response.low_balance?
   end
 
-  def test_get_messages_raises_not_implemented
+  def test_get_messages
+    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?page=1&per_page=100&type=inbound")
+      .to_return(
+        status: 200,
+        body: { "error" => "No inbound or unsubscribe messages found." }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+
     client = MobileMessage::SMS::Client.new(**sample_credentials)
-    
-    error = assert_raises(NotImplementedError) do
-      client.get_messages
-    end
-    assert_match(/webhook/, error.message)
+    response = client.get_messages
+
+    assert response.success?
+    assert_equal 0, response.messages.count
+    assert response.empty?
+  end
+
+  def test_get_messages_with_results
+    stub_request(:get, "https://api.mobilemessage.com.au/v1/messages?page=1&per_page=100&type=inbound")
+      .to_return(
+        status: 200,
+        body: {
+          "status" => "complete",
+          "results" => [
+            {
+              "to" => "61412345678",
+              "message" => "Test inbound",
+              "sender" => "61412345699",
+              "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
+              "type" => "inbound"
+            }
+          ]
+        }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+
+    client = MobileMessage::SMS::Client.new(**sample_credentials)
+    response = client.get_messages
+
+    assert response.success?
+    assert_equal 1, response.messages.count
+    refute response.empty?
   end
 
   def test_authentication_error

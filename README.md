@@ -263,12 +263,17 @@ balance = client.balance
 puts "Credits remaining: #{balance.balance}"
 ```
 
-### Receiving Messages (Webhooks)
+### Receiving Messages
 
-**Important:** The Mobile Message API does not provide a polling endpoint for received messages. Instead, you must configure webhooks in your account settings to receive real-time notifications.
+The Mobile Message API provides two ways to receive inbound SMS messages:
+
+1. **Webhooks (Recommended)**: Real-time push notifications
+2. **Polling**: Query the API for new messages using `type=inbound` parameter
+
+#### Option 1: Webhooks (Recommended for Production)
 
 Configure your webhook URLs at https://mobilemessage.com.au in your account settings:
-- **Inbound URL**: For receiving SMS replies
+- **Inbound URL**: For receiving SMS replies and unsubscribe requests
 - **Status URL**: For delivery receipt notifications
 
 ```ruby
@@ -320,6 +325,40 @@ def webhook_status
   render plain: "OK", status: 200
 end
 ```
+
+#### Option 2: Polling (Alternative)
+
+You can also poll for inbound messages using the `GET /v1/messages?type=inbound` endpoint:
+
+```ruby
+# Poll for inbound messages
+response = client.get_messages
+
+if response.success?
+  if response.empty?
+    puts "No new inbound messages"
+  else
+    puts "Found #{response.messages.count} inbound message(s)"
+    
+    response.each_message do |message|
+      puts "From: #{message.from}"
+      puts "To: #{message.to}"
+      puts "Message: #{message.body}"
+      puts "Type: #{message.type}" # "inbound" or "unsubscribe"
+      puts "Received: #{message.received_at}"
+    end
+  end
+end
+
+# Polling with custom parameters
+response = client.get_messages(page: 1, per_page: 50)
+
+# Alternative method names
+response = client.received_messages
+response = client.inbound_messages
+```
+
+**Note:** Webhooks are recommended for production as they provide real-time notifications without the overhead of polling.
 
 ### Webhook Handling
 
@@ -405,6 +444,16 @@ response.credit_balance     # Integer: Same as balance (alias)
 response.currency           # String: Currency code ("AUD")
 response.low_balance?(threshold)  # Boolean: Balance below threshold
 response.formatted_balance  # String: Formatted balance ("1000 credits")
+```
+
+### InboundMessagesResponse (Polling)
+
+```ruby
+response.success?           # Boolean: API call successful
+response.messages           # Array<InboundMessage>: Inbound message objects
+response.total_count        # Integer: Number of messages
+response.empty?             # Boolean: No messages found
+response.each_message { |msg| ... }  # Iterator
 ```
 
 ### InboundMessage (Webhook Data)
@@ -668,6 +717,10 @@ This table shows every public method in this gem and how it maps to the official
 | **Account Management** |
 | `client.get_balance()` | `GET /v1/account` | Get current account credit balance | [Account Balance](https://mobilemessage.com.au/api-documentation) |
 | `client.balance()` | `GET /v1/account` | Alias for get_balance() | [Account Balance](https://mobilemessage.com.au/api-documentation) |
+| **Receiving Messages** |
+| `client.get_messages(page:, per_page:)` | `GET /v1/messages?type=inbound` | Poll for inbound SMS messages | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.received_messages()` | `GET /v1/messages?type=inbound` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
+| `client.inbound_messages()` | `GET /v1/messages?type=inbound` | Alias for get_messages() | [Receive SMS](https://mobilemessage.com.au/api-documentation) |
 | **Webhook Handling** |
 | `client.parse_webhook(payload)` | - | Parse inbound or status webhook payload | [Webhooks](https://mobilemessage.com.au/api-documentation) |
 | `client.verify_webhook_signature(payload:, signature:, secret:)` | - | Verify webhook signature for security | [Webhooks](https://mobilemessage.com.au/api-documentation) |
@@ -953,11 +1006,13 @@ is_valid = client.verify_webhook_signature(
 The gem supports all core Mobile Message API endpoints:
 
 - `POST /v1/messages` - Send SMS messages (single or bulk up to 100)
-- `GET /v1/messages` - Get message delivery status (by message_id or custom_ref)
+- `GET /v1/messages?message_id=...` - Get message delivery status by message ID
+- `GET /v1/messages?custom_ref=...` - Get message delivery status by custom reference (supports wildcards)
+- `GET /v1/messages?type=inbound` - Poll for inbound SMS messages (webhooks recommended)
 - `GET /v1/account` - Get account credit balance
 - Webhooks (configured in account settings):
-  - Inbound URL - Receive SMS replies and unsubscribe requests
-  - Status URL - Receive delivery receipt notifications
+  - Inbound URL - Receive SMS replies and unsubscribe requests in real-time
+  - Status URL - Receive delivery receipt notifications in real-time
 
 ### Authentication
 

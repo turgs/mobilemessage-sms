@@ -1,13 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# NOTE: The Mobile Message API does not support polling for received messages.
-# This example demonstrates why webhooks should be used instead.
-#
-# Configure webhooks in your Mobile Message account settings at:
-# https://mobilemessage.com.au
-#
-# For webhook examples, see webhook_handler.rb
+# Polling for inbound messages using GET /v1/messages?type=inbound
+# Note: For production, webhooks are recommended for real-time delivery
 
 require 'mobilemessage'
 
@@ -18,63 +13,98 @@ client = MobileMessage.enhanced_sms(
 )
 
 puts "=" * 60
-puts "Message Polling (NOT SUPPORTED)"
+puts "Polling for Inbound Messages"
 puts "=" * 60
-puts "\nThe Mobile Message API does not provide a polling endpoint for"
-puts "received messages. Instead, you must configure webhooks."
-puts "\nAttempting to poll will result in an error:\n\n"
+puts "\nNote: Webhooks are recommended for production as they provide"
+puts "real-time notifications without the overhead of polling.\n\n"
 
-begin
-  response = client.get_messages
-rescue NotImplementedError => e
-  puts "✗ Error: #{e.message}"
+# Example 1: Simple polling
+puts "Example 1: Checking for inbound messages"
+response = client.get_messages
+
+if response.success?
+  if response.empty?
+    puts "✓ No new inbound messages"
+  else
+    puts "✓ Found #{response.messages.count} inbound message(s)"
+    
+    response.each_message do |message|
+      puts "\n  Message:"
+      puts "    From: #{message.from}"
+      puts "    To: #{message.to}"
+      puts "    Message: #{message.body}"
+      puts "    Type: #{message.type}" # "inbound" or "unsubscribe"
+      puts "    Received: #{message.received_at}"
+      
+      if message.original_message_id
+        puts "    Reply to: #{message.original_message_id}"
+        puts "    Original ref: #{message.original_custom_ref}"
+      end
+    end
+  end
+else
+  puts "✗ Failed to retrieve messages: #{response.error_message}"
+end
+
+# Example 2: Polling with custom parameters
+puts "\nExample 2: Polling with pagination"
+response = client.get_messages(page: 1, per_page: 50)
+puts "  Retrieved: #{response.messages.count} messages"
+
+# Example 3: Polling loop (for demonstration)
+puts "\nExample 3: Continuous polling (3 iterations)"
+puts "  In production, run this as a background job/daemon\n"
+
+3.times do |i|
+  puts "  Poll #{i + 1}:"
+  
+  begin
+    response = client.get_messages
+    
+    if response.success?
+      if response.empty?
+        puts "    No new messages"
+      else
+        puts "    Found #{response.messages.count} message(s)"
+        response.each_message do |msg|
+          puts "    - #{msg.from}: #{msg.body[0..50]}..."
+        end
+      end
+    else
+      puts "    ✗ Error: #{response.error_message}"
+    end
+  rescue MobileMessage::SMS::Error => e
+    puts "    ✗ Exception: #{e.message}"
+  end
+  
+  sleep 2 unless i == 2  # Don't sleep on last iteration
 end
 
 puts "\n" + "=" * 60
-puts "Alternative: Use Webhooks (RECOMMENDED)"
+puts "Production Polling vs Webhooks Comparison"
 puts "=" * 60
 puts <<~INFO
   
-  To receive inbound SMS messages and delivery receipts in real-time:
+  **Polling (GET /v1/messages?type=inbound):**
+  ✓ Simple to implement
+  ✓ No external endpoint needed
+  ✗ Delayed notifications (depends on polling interval)
+  ✗ Increased API usage
+  ✗ Less efficient
   
-  1. Configure webhook URLs in your Mobile Message account settings:
-     - Inbound URL: Receives SMS replies and unsubscribe requests
-     - Status URL: Receives delivery status updates
+  **Webhooks (Recommended):**
+  ✓ Real-time notifications
+  ✓ No polling overhead
+  ✓ More efficient
+  ✓ Scales better
+  ✗ Requires public endpoint
+  ✗ More complex setup
   
-  2. Set up webhook endpoints in your application:
-     
-     # Example Rails controller
-     class WebhooksController < ApplicationController
-       skip_before_action :verify_authenticity_token
-       
-       def receive_sms
-         webhook_data = client.parse_webhook(request.body.read)
-         
-         case webhook_data
-         when MobileMessage::SMS::InboundMessage
-           # Handle inbound SMS
-           process_message(webhook_data)
-         when MobileMessage::SMS::StatusUpdate
-           # Handle delivery status
-           update_status(webhook_data)
-         end
-         
-         render plain: 'OK', status: :ok
-       end
-     end
+  For production systems, configure webhooks at:
+  https://mobilemessage.com.au (Account Settings > Webhooks)
   
-  3. See webhook_handler.rb for a complete working example.
-  
-  Benefits of webhooks over polling:
-  - Real-time notifications (instant delivery)
-  - No API rate limits for receiving messages
-  - More efficient (no repeated polling requests)
-  - Lower latency
-  - No missed messages
-  - Scalable architecture
+  See webhook_handler.rb for webhook implementation examples.
 
 INFO
 
-puts "\nFor a complete webhook example, run:"
-puts "  ruby examples/webhook_handler.rb"
 puts "\nDone!"

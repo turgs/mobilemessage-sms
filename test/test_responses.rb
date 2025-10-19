@@ -117,6 +117,37 @@ class TestResponses < Minitest::Test
     assert_instance_of Time, status.received_at
   end
 
+  def test_inbound_messages_response_empty
+    raw = { "error" => "No inbound or unsubscribe messages found." }
+    response = MobileMessage::SMS::InboundMessagesResponse.new(raw)
+
+    assert response.success?
+    assert_equal 0, response.messages.count
+    assert response.empty?
+  end
+
+  def test_inbound_messages_response_with_messages
+    raw = {
+      "status" => "complete",
+      "results" => [
+        {
+          "to" => "61412345678",
+          "message" => "Test message",
+          "sender" => "61412345699",
+          "received_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S"),
+          "type" => "inbound"
+        }
+      ]
+    }
+    response = MobileMessage::SMS::InboundMessagesResponse.new(raw)
+
+    assert response.success?
+    assert_equal 1, response.messages.count
+    refute response.empty?
+    assert_equal "61412345699", response.messages.first.from
+    assert_equal "Test message", response.messages.first.body
+  end
+
   def test_chainable_operations
     raw = sample_success_response
     response = MobileMessage::SMS::SendSmsResponse.new(raw)

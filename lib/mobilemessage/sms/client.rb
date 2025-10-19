@@ -154,14 +154,16 @@ module MobileMessage
 
       alias balance get_balance
 
-      # Note: The Mobile Message API does not provide a polling endpoint for received messages.
-      # Instead, configure webhooks in your account settings to receive real-time notifications
-      # for inbound messages and delivery receipts.
-      # This method is kept for backwards compatibility but will raise an error.
-      def get_messages(page: 1, per_page: 100, unread_only: false)
-        raise NotImplementedError, "The Mobile Message API does not support polling for received messages. " \
-                                   "Please configure webhooks in your account settings at https://mobilemessage.com.au " \
-                                   "to receive inbound messages and delivery receipts in real-time."
+      # Get received messages (polling via type=inbound parameter)
+      # Note: For production, webhooks are recommended for real-time delivery.
+      # This polls the API which is less efficient than webhooks.
+      def get_messages(page: 1, per_page: 100)
+        params = { type: 'inbound' }
+        params[:page] = page if page
+        params[:per_page] = per_page if per_page
+
+        response = with_retry { @http_client.get("messages", params: params) }
+        wrap_response(InboundMessagesResponse, response)
       end
 
       alias received_messages get_messages
@@ -271,7 +273,11 @@ module MobileMessage
           if method == :post
             generate_send_sms_response(body)
           elsif method == :get
-            generate_message_status_response(params)
+            if params[:type] == 'inbound'
+              generate_inbound_messages_response(params)
+            else
+              generate_message_status_response(params)
+            end
           else
             { "status" => "complete", "message" => "Sandbox response" }
           end
@@ -320,6 +326,14 @@ module MobileMessage
               "requested_at" => Time.now.strftime("%Y-%m-%d %H:%M:%S")
             }
           ]
+        }
+      end
+
+      def generate_inbound_messages_response(params)
+        # Simulate empty inbound messages (most common case)
+        # In real usage, this would return actual inbound messages
+        {
+          "error" => "No inbound or unsubscribe messages found."
         }
       end
 

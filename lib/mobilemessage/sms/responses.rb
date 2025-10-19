@@ -343,6 +343,32 @@ module MobileMessage
       end
     end
 
+    # Response for inbound messages polling (type=inbound)
+    # API returns {"error": "No inbound or unsubscribe messages found."} when empty
+    class InboundMessagesResponse < BaseResponse
+      def success?
+        # Both "complete" status and "error" with no messages are considered success
+        @raw_response["status"] == "complete" || @raw_response["error"]&.include?("No inbound")
+      end
+
+      def messages
+        # Parse results array if present, otherwise empty array
+        @messages ||= (@raw_response["results"] || []).map { |m| InboundMessage.new(m) }
+      end
+
+      def total_count
+        messages.count
+      end
+
+      def each_message(&block)
+        messages.each(&block)
+      end
+
+      def empty?
+        messages.empty?
+      end
+    end
+
     # Bulk response collection for multiple operations
     class BulkResponseCollection
       attr_reader :responses
